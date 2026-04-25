@@ -1,0 +1,70 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "A JSON Schema URI."
+    },
+    "wadPath": {
+      "type": "string",
+      "description": "Path to a Doom-compatible WAD file, such as freedoom1.wad."
+    },
+    "sf2Path": {
+      "type": "string",
+      "description": "Path to an SF2 sound font used by SDL2_mixer."
+    },
+    "demo": {
+      "type": "string",
+      "description": "The demo to run. It must exist inside the chosen WAD file."
+    },
+    "keybindings": {
+      "type": "object",
+      "properties": {
+        "moveForward": { "$ref": "#/$defs/keyList" },
+        "moveBackward": { "$ref": "#/$defs/keyList" },
+        "turnLeft": { "$ref": "#/$defs/keyList" },
+        "turnRight": { "$ref": "#/$defs/keyList" },
+        "strafeLeft": { "$ref": "#/$defs/keyList" },
+        "strafeRight": { "$ref": "#/$defs/keyList" },
+        "fire": { "$ref": "#/$defs/keyList" },
+        "use": { "$ref": "#/$defs/keyList" },
+        "menu": { "$ref": "#/$defs/keyList" },
+        "pause": { "$ref": "#/$defs/keyList" },
+        "confirm": { "$ref": "#/$defs/keyList" },
+        "abort": { "$ref": "#/$defs/keyList" },
+        "yes": { "$ref": "#/$defs/keyList" },
+        "no": { "$ref": "#/$defs/keyList" }
+      },
+      "additionalProperties": false,
+      "required": [
+        "moveForward",
+        "moveBackward",
+        "turnLeft",
+        "turnRight",
+        "strafeLeft",
+        "strafeRight",
+        "fire",
+        "use",
+        "menu",
+        "pause",
+        "confirm",
+        "abort",
+        "yes",
+        "no"
+      ]
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "keyList": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "minItems": 1,
+      "uniqueItems": true
+    }
+  }
+}

@@ -1,0 +1,5 @@
+.savegame
+deps/
+destino.json
+dist/
+tmp/

@@ -1,0 +1,42 @@
+{
+  "name": "destino",
+  "version": "0.1.0",
+  "description": "Doom terminal demo based on Node.js, doomgeneric and OpenTUI",
+  "homepage": "https://github.com/platformatic/destino",
+  "author": "Platformatic Inc. <oss@platformatic.dev> (https://platformatic.dev)",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/platformatic/destino.git"
+  },
+  "keywords": [
+    "doom",
+    "doomgeneric",
+    "freedoom",
+    "opentui"
+  ],
+  "bugs": {
+    "url": "https://github.com/platformatic/destino/issues"
+  },
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "install:dependencies": "./src/scripts/install.sh",
+    "build": "make -f src/native/Makefile",
+    "build:clean": "make -f src/native/Makefile clean",
+    "lint": "eslint --cache",
+    "clean": "rm -rf deps dist tmp",
+    "format": "prettier -w src && clang-format -i src/native/main.c"
+  },
+  "dependencies": {
+    "@opentui/core": "^0.1.103",
+    "@types/node": "^25.6.0",
+    "eslint": "^9.35.0",
+    "neostandard": "^0.12.2",
+    "prettier": "^3.8.1",
+    "prettier-plugin-space-before-function-paren": "^0.0.10"
+  },
+  "engines": {
+    "node": ">=26.1.0"
+  }
+}
