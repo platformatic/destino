@@ -1,0 +1,14 @@
+{
+  "main": "./dist/index.js",
+  "mainFormat": "module",
+  "output": "./dist/destino",
+  "execArgv": ["--no-warnings", "--experimental-ffi"],
+  "useCodeCache": true,
+  "assets": {
+    "destino.dylib": "./dist/destino.dylib",
+    "opentui.dylib": "./node_modules/@opentui/core-darwin-arm64/libopentui.dylib",
+    "wads/freedoom1.wad": "dist/wads/freedoom1.wad",
+    "wads/freedoom2.wad": "dist/wads/freedoom2.wad",
+    "sf2s/GeneralUser.sf2": "./dist/sf2s/GeneralUser.sf2"
+  }
+}

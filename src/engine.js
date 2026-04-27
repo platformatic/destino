@@ -1,13 +1,18 @@
 import { dlopen, getRawPointer, suffix, toString } from 'node:ffi'
 import { resolve } from 'node:path'
+import { isSea } from 'node:sea'
+import { getAssetsRoot } from './sea.js'
 
-export class Doom {
+export class Engine {
   #lib
   #cleanup
   #setWindowTitle
   #destroyed
 
   constructor (runtime) {
+    const libPath = resolve(getAssetsRoot(), `destino.${suffix}`)
+    console.log(`Loading doomgeneric from ${libPath}`)
+
     const {
       lib,
       functions: {
@@ -23,7 +28,7 @@ export class Doom {
         release_audio: releaseAudio,
         cleanup
       }
-    } = dlopen(resolve(import.meta.dirname, `../dist/doom.${suffix}`), {
+    } = dlopen(libPath, {
       init: { parameters: ['int32', 'pointer', 'string', 'pointer'], result: 'pointer' },
       send_key: { parameters: ['uint8', 'int32'], result: 'void' },
       get_framebuffer: { parameters: [], result: 'pointer' },
@@ -54,7 +59,7 @@ export class Doom {
 
   initialize (config) {
     // Convert all arguments to pointers to get a char**
-    const args = [process.execPath, '-iwad', config.wadPath]
+    const args = [process.execPath, '-iwad', this.#getWadPath(config)]
 
     if (config.demo) {
       args.push('-playdemo', config.demo)
@@ -71,7 +76,7 @@ export class Doom {
       process.title = toString(cstr)
     })
 
-    this.init(args.length, argsBuffer, config.sf2Path ?? null, this.#setWindowTitle)
+    this.init(args.length, argsBuffer, this.#getSF2Path(config), this.#setWindowTitle)
   }
 
   destroy () {
@@ -82,5 +87,27 @@ export class Doom {
     this.#destroyed = true
     this.#cleanup()
     this.#lib.close()
+  }
+
+  #getWadPath (config) {
+    const path = config.wadPath
+      ? resolve(process.cwd(), config.wadPath)
+      : resolve(getAssetsRoot(), 'wads/freedoom1.wad')
+
+    console.log(`Using WAD file ${path}`)
+    return path
+  }
+
+  #getSF2Path (config) {
+    let path = null
+
+    if (config.sf2Path) {
+      path = resolve(process.cwd(), config.sf2Path)
+    } else if (isSea()) {
+      path = resolve(getAssetsRoot(), 'sf2s/GeneralUser.sf2')
+    }
+
+    console.log(`Using SF2 file ${path}`)
+    return path
   }
 }

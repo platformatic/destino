@@ -3,9 +3,9 @@
 set -x -e
 
 if [[ "$(uname -s)" == "Darwin" ]]; then
-  brew install pkg-config sdl2_mixer
+  brew install pkg-config sdl2_mixer unzip
 else 
-  sudo apt install clang make pkg-config libsdl2-mixer-dev
+  sudo apt -y install clang cmake pkg-config libsdl2-mixer-dev unzip
 fi
 
 mkdir -p deps

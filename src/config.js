@@ -1,7 +1,6 @@
 import { existsSync } from 'node:fs'
 import { glob, readFile, writeFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
-import { format } from 'prettier'
 
 export const defaultConfigPath = 'destino.json'
 
@@ -77,10 +76,12 @@ export async function loadConfig () {
   if (!existsSync(configPath)) {
     await writeFile(
       configPath,
-      await format(
-        JSON.stringify({ ...defaultConfig, wadPath: await findWadPath(), sf2Path: await findSF2Path() }, null, 2),
-        { parser: 'json' }
-      ),
+      JSON.stringify(
+        { ...defaultConfig, wadPath: await findWadPath(), sf2Path: await findSF2Path() },
+        null,
+        2
+        // Compact arrays of strings into single lines for better readability
+      ).replaceAll(/\[\s+((.+\n){1,2})\s+\]/gm, (_, g1) => `[${g1.replaceAll(/\s+/g, ' ').trim()}]`),
       'utf8'
     )
 
