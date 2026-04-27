@@ -40,9 +40,9 @@ export async function main (context) {
   const rows = process.stdout.rows ?? 0
   const columns = process.stdout.columns ?? 0
   if (columns < 160 || rows < 100) {
-    console.error(
-      'Destino requires a terminal size of at least 160 columns by 100 rows. Resize your terminal and try again.'
-    )
+    console.error(`Your terminal size is currently ${columns} columns by ${rows} rows.`)
+    console.error('Destino requires a size of at least 160 columns by 100 rows. Resize your terminal and try again.')
+
     return
   }
 
