@@ -1,10 +1,10 @@
 
+#include <SDL_mixer.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
 
-#include "SDL_mixer.h"
 #include "doomgeneric.h"
 #include "i_sound.h"
 #include "i_system.h"

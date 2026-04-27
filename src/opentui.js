@@ -1,6 +1,8 @@
 import { dlopen, getRawPointer, suffix, toBuffer } from 'node:ffi'
 import { createRequire } from 'node:module'
 import { dirname, resolve } from 'node:path'
+import { isSea } from 'node:sea'
+import { getAssetsRoot } from './sea.js'
 
 export class OpenTUI {
   #doom
@@ -24,9 +26,18 @@ export class OpenTUI {
   constructor (doom) {
     this.#doom = doom
 
-    // Resolve and bind the platform-specific OpenTUI native library.
-    const require = createRequire(import.meta.url)
-    const openTUIPath = dirname(require.resolve(`@opentui/core-${process.platform}-${process.arch}`))
+    let libPath
+
+    if (isSea()) {
+      libPath = resolve(getAssetsRoot(), `opentui.${suffix}`)
+    } else {
+      // Resolve and bind the platform-specific OpenTUI native library.
+      const require = createRequire(import.meta.url)
+      const openTUIPath = dirname(require.resolve(`@opentui/core-${process.platform}-${process.arch}`))
+      libPath = resolve(import.meta.dirname, openTUIPath, `libopentui.${suffix}`)
+    }
+
+    console.log(`Loading OpenTUI from ${libPath}`)
 
     const {
       lib,
@@ -41,7 +52,7 @@ export class OpenTUI {
         render,
         destroyRenderer
       }
-    } = dlopen(resolve(import.meta.dirname, openTUIPath, `libopentui.${suffix}`), {
+    } = dlopen(libPath, {
       createRenderer: {
         parameters: ['uint32', 'uint32', 'bool', 'bool'],
         result: 'pointer'

@@ -11,11 +11,10 @@ Sound is delegated to DoomGeneric's SDL2 audio backend through SDL2_mixer; Node.
 The project is split into a small native platform layer and a JavaScript runtime:
 
 1. `src/native/main.c` implements the platform callbacks required by `doomgeneric`, including input, timing, frame readiness, and framebuffer access.
-2. `src/native/Makefile` builds `doomgeneric` plus the native platform layer into `dist/doom.dylib` on macOS or `dist/doom.so` on Linux.
-3. `src/doom.js` loads the Doom shared library through `node:ffi` and exposes a small JavaScript wrapper around the native functions.
-4. `src/input.js` parses terminal keyboard input, including Kitty keyboard protocol events, and maps configured keys to Doom key codes.
-5. `src/opentui.js` loads OpenTUI's native library and renders Doom's framebuffer into the terminal.
-6. `src/index.js` wires everything together and runs Doom at 35 Hz.
+2. `src/engine.js` loads the Doom shared library through `node:ffi` and exposes a small JavaScript wrapper around the native functions.
+3. `src/input.js` parses terminal keyboard input, including Kitty keyboard protocol events, and maps configured keys to Doom key codes.
+4. `src/opentui.js` loads OpenTUI's native library and renders Doom's framebuffer into the terminal.
+5. `src/index.js` wires everything together and runs Doom at 35 Hz.
 
 Rendering is pull-based: Doom marks a frame ready, JavaScript pulls the native framebuffer, scales it into a reusable buffer, and passes that buffer to OpenTUI. This avoids C-to-JS callbacks in the frame path.
 
@@ -24,7 +23,7 @@ Rendering is pull-based: Doom marks a frame ready, JavaScript pulls the native f
 You need:
 
 1. A Node.js build with `node:ffi` support. At the time of writing this is not released yet and is expected in Node.js 26.1.0. Use a nightly after April 21, 2026, for example `v26.0.0-nightly20260421eb54e709c7`.
-2. `clang`, `make`, and `pkg-config`.
+2. `cmake`, `clang`, and `pkg-config`.
 3. SDL2_mixer development files.
 4. `doomgeneric` sources under `deps/doomgeneric`.
 5. A Doom-compatible WAD, such as `freedoom1.wad` from [Freedoom](https://freedoom.github.io/download.html).
@@ -35,11 +34,11 @@ You need:
 
 ### Automatic
 
-This is only support on MacOS or Ubuntu Linux
+This is only supported on macOS or Ubuntu Linux.
 
 ```
 npm install
-npm run install:dependencies
+npm run dependencies
 ```
 
 ### Manual
@@ -47,7 +46,7 @@ npm run install:dependencies
 Install NPM dependencies:
 
 ```
-npm run install
+npm install
 ```
 
 On macOS, install native dependencies with:
@@ -81,6 +80,31 @@ Build the native Doom library:
 
 ```sh
 npm run build
+```
+
+## Building a SEA executable
+
+Destino can be packaged as a Node.js Single Executable Application (SEA) on macOS.
+
+First install dependencies and build the native library:
+
+```sh
+npm install
+npm run dependencies
+npm run build
+```
+
+Then build the executable:
+
+```sh
+npm run sea
+```
+
+This bundles the JavaScript entry point, native libraries, WAD files, and SF2 sound font into `dist/destino`.
+The SEA config also enables `--experimental-ffi` automatically, so the executable can be run directly:
+
+```sh
+./dist/destino
 ```
 
 ## Running the game

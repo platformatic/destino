@@ -21,20 +21,24 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "install:dependencies": "./src/scripts/install.sh",
-    "build": "make -f src/native/Makefile",
-    "build:clean": "make -f src/native/Makefile clean",
+    "build": "./src/scripts/build.sh",
     "lint": "eslint --cache",
-    "clean": "rm -rf deps dist tmp",
-    "format": "prettier -w src && clang-format -i src/native/main.c"
+    "clean": "rm -rf dist tmp",
+    "distclean": "rm -rf deps dist tmp",
+    "format": "prettier -w src && clang-format -i src/native/main.c",
+    "dependencies": "./src/scripts/install.sh",
+    "sea": "./src/scripts/sea.sh"
   },
   "dependencies": {
-    "@opentui/core": "^0.1.103",
+    "@opentui/core": "^0.1.103"
+  },
+  "devDependencies": {
     "@types/node": "^25.6.0",
     "eslint": "^9.35.0",
     "neostandard": "^0.12.2",
     "prettier": "^3.8.1",
-    "prettier-plugin-space-before-function-paren": "^0.0.10"
+    "prettier-plugin-space-before-function-paren": "^0.0.10",
+    "rolldown": "1.0.0-rc.17"
   },
   "engines": {
     "node": ">=26.1.0"
