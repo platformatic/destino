@@ -117,6 +117,7 @@ set_source_files_properties("${DOOMGENERIC}/i_system.c" PROPERTIES COMPILE_DEFIN
 if(APPLE)
   set_target_properties(destino PROPERTIES OUTPUT_NAME "destino" PREFIX "" SUFFIX ".dylib")
 else()
+  target_link_options(destino PRIVATE -Wl,-Bsymbolic-functions)
   set_target_properties(destino PROPERTIES OUTPUT_NAME "destino" PREFIX "" SUFFIX ".so")
 endif()
 

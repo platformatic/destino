@@ -23,7 +23,7 @@ Rendering is pull-based: Doom marks a frame ready, JavaScript pulls the native f
 You need:
 
 1. A Node.js build with `node:ffi` support. At the time of writing this is not released yet and is expected in Node.js 26.1.0. Use a nightly after April 21, 2026, for example `v26.0.0-nightly20260421eb54e709c7`.
-2. `cmake`, `clang`, and `pkg-config`.
+2. `cmake`, `clang`, `pkg-config` and `unzip`.
 3. SDL2_mixer development files.
 4. `doomgeneric` sources under `deps/doomgeneric`.
 5. A Doom-compatible WAD, such as `freedoom1.wad` from [Freedoom](https://freedoom.github.io/download.html).
@@ -55,7 +55,7 @@ On macOS, install native dependencies with:
 brew install clang pkg-config sdl2_mixer
 ```
 
-On Linux install SDL2 Mixer, clang, make and pkg-config according to your distribution package manager.
+On Linux install SDL2, SDL2_Mixer, clang, pkg-config and unzip according to your distribution package manager.
 
 Download runtime assets and `doomgeneric` locally:
 

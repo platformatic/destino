@@ -2,4 +2,5 @@
 deps/
 destino.json
 dist/
+node_modules/
 tmp/
