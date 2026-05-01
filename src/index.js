@@ -28,9 +28,9 @@ function shutdown (runtime, resolve) {
     runtime.renderer = null
   }
 
-  if (runtime.doom !== null) {
-    runtime.doom.destroy()
-    runtime.doom = null
+  if (runtime.engine !== null) {
+    runtime.engine.destroy()
+    runtime.engine = null
   }
 
   writeSync(process.stdout.fd, '\x1b[<u\x1b[?1049l\x1b[?25h\x1b[2J\x1b[3J\x1b[H')
@@ -53,8 +53,6 @@ export async function main (context) {
     } else {
       useKittyRenderer = true
     }
-
-    return
   }
 
   const { promise, resolve } = Promise.withResolvers()
