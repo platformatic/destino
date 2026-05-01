@@ -2,6 +2,7 @@ import { writeSync } from 'node:fs'
 import { loadConfig } from './config.js'
 import { Engine } from './engine.js'
 import { TerminalParser } from './input.js'
+import { KittyRenderer } from './kitty.js'
 import { OpenTUI } from './opentui.js'
 import { cleanupSEA, initSEA } from './sea.js'
 
@@ -22,14 +23,14 @@ function shutdown (runtime, resolve) {
     runtime.input = null
   }
 
-  if (runtime.openTUI !== null) {
-    runtime.openTUI.destroy()
-    runtime.openTUI = null
+  if (runtime.renderer !== null) {
+    runtime.renderer.destroy()
+    runtime.renderer = null
   }
 
-  if (runtime.doom !== null) {
-    runtime.doom.destroy()
-    runtime.doom = null
+  if (runtime.engine !== null) {
+    runtime.engine.destroy()
+    runtime.engine = null
   }
 
   writeSync(process.stdout.fd, '\x1b[<u\x1b[?1049l\x1b[?25h\x1b[2J\x1b[3J\x1b[H')
@@ -39,22 +40,30 @@ function shutdown (runtime, resolve) {
 export async function main (context) {
   const rows = process.stdout.rows ?? 0
   const columns = process.stdout.columns ?? 0
-  if (columns < 160 || rows < 100) {
-    console.error(`Your terminal size is currently ${columns} columns by ${rows} rows.`)
-    console.error('Destino requires a size of at least 160 columns by 100 rows. Resize your terminal and try again.')
+  const canUseKittyRenderer = KittyRenderer.isSupported()
 
-    return
+  let useKittyRenderer = process.env.USE_KITTY_RENDERER === 'true'
+
+  if (columns < 160 || rows < 100) {
+    if (!canUseKittyRenderer) {
+      console.error(`Your terminal size is currently ${columns} columns by ${rows} rows.`)
+      console.error(
+        'Destino requires a size of at least 160 columns by 100 rows or a terminal with Kitty support. Resize your terminal and try again.'
+      )
+    } else {
+      useKittyRenderer = true
+    }
   }
 
   const { promise, resolve } = Promise.withResolvers()
   const config = await loadConfig()
 
   // Open FFI libs
-  const doom = new Engine()
+  const engine = new Engine()
   const runtime = {
-    doom,
+    engine,
     input: new TerminalParser(config.keybindings),
-    openTUI: new OpenTUI(doom),
+    renderer: useKittyRenderer ? new KittyRenderer(engine) : new OpenTUI(engine),
     timer: null,
     audioReleased: false,
     shuttingDown: false
@@ -65,11 +74,11 @@ export async function main (context) {
   process.once('SIGTERM', boundShutdown)
 
   // Setup modules
-  runtime.doom.initialize(config)
-  runtime.openTUI.setupFrameBuffer()
+  runtime.engine.initialize(config)
+  runtime.renderer.setupFrameBuffer()
   runtime.input.on('quit', () => shutdown(runtime, resolve))
-  runtime.input.on('press', doomKey => runtime.doom.sendKey(doomKey, 1))
-  runtime.input.on('release', doomKey => runtime.doom.sendKey(doomKey, 0))
+  runtime.input.on('press', doomKey => runtime.engine.sendKey(doomKey, 1))
+  runtime.input.on('release', doomKey => runtime.engine.sendKey(doomKey, 0))
   runtime.input.start()
 
   // Execute the game, doom runs at 35Hz
@@ -78,25 +87,25 @@ export async function main (context) {
       return
     }
 
-    runtime.doom.tick()
+    runtime.engine.tick()
 
-    if (runtime.doom.quitRequested()) {
+    if (runtime.engine.quitRequested()) {
       shutdown(runtime, resolve)
       return
     }
 
-    if (!runtime.doom.frameReady()) {
+    if (!runtime.engine.frameReady()) {
       return
     }
 
-    runtime.openTUI.render()
+    runtime.renderer.render()
 
     if (!runtime.audioReleased) {
       runtime.audioReleased = true
-      runtime.doom.releaseAudio()
+      runtime.engine.releaseAudio()
     }
 
-    runtime.doom.clearFrameReady()
+    runtime.engine.clearFrameReady()
   }, 1000 / 35)
 
   await promise
