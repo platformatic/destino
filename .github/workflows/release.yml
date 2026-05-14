@@ -14,7 +14,151 @@ on:
         default: false
 
 jobs:
-  noop:
+  bump-version:
+    if: github.ref_name == 'main'
     runs-on: ubuntu-latest
+    environment: main
+    permissions:
+      contents: write
     steps:
-      - run: echo "Release workflow placeholder"
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11
+
+      - name: Use supported Node.js Version
+        uses: actions/setup-node@v4
+        with:
+          node-version: 26.1.0
+
+      - name: Restore cached dependencies
+        uses: actions/cache@v3
+        with:
+          path: ~/.pnpm-store
+          key: node-modules-${{ hashFiles('package.json') }}
+
+      - name: Install dependencies
+        run: pnpm install
+
+      - name: Bump Version
+        run: node src/scripts/bump-version.js "${{ inputs.version }}" "${{ github.actor }}"
+        env:
+          GITHUB_ACTIONS: 'true'
+
+      - name: Create tag
+        run: |
+          VERSION="${{ inputs.version }}"
+          VERSION="${VERSION#v}"
+          git tag "v$VERSION"
+
+      - name: Push changes
+        run: git push origin HEAD:${{ github.ref }}
+
+      - name: Push tag
+        run: |
+          VERSION="${{ inputs.version }}"
+          VERSION="${VERSION#v}"
+          git push origin "v$VERSION"
+
+  release:
+    needs: bump-version
+    if: always() && !failure() && !cancelled()
+    name: Release ${{ matrix.platform }} ${{ matrix.arch }}
+    runs-on: ${{ matrix.os }}
+    environment: main
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux
+            arch: x64
+            os: ubuntu-latest
+          - platform: linux
+            arch: arm64
+            os: ubuntu-24.04-arm
+          - platform: macos
+            arch: x64
+            os: macos-15-intel
+          - platform: macos
+            arch: arm64
+            os: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref }}
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11
+
+      - name: Use supported Node.js Version
+        uses: actions/setup-node@v4
+        with:
+          node-version: 26.1.0
+
+      - name: Restore cached dependencies
+        uses: actions/cache@v3
+        with:
+          path: ~/.pnpm-store
+          key: node-modules-${{ matrix.platform }}-${{ matrix.arch }}-${{ hashFiles('package.json') }}
+
+      - name: Install dependencies
+        run: pnpm install
+
+      - name: Install native dependencies
+        run: pnpm run dependencies
+
+      - name: Build native library
+        run: pnpm run build
+
+      - name: Build executable
+        run: pnpm run sea
+        env:
+          NODE_BUILD_BASE_URL: ${{ vars.NODE_BUILD_BASE_URL || secrets.NODE_BUILD_BASE_URL }}
+
+      - name: Notarize macOS executable
+        if: matrix.platform == 'macos'
+        run: pnpm run notarize:mac
+        env:
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_KEYCHAIN_PASSWORD: ${{ secrets.APPLE_KEYCHAIN_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+
+      - name: Prepare artifact
+        run: bash src/scripts/prepare-artifact.sh "${{ matrix.platform }}" "${{ matrix.arch }}"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: destino-${{ matrix.platform }}-${{ matrix.arch }}
+          path: tmp/artifact-${{ matrix.platform }}-${{ matrix.arch }}/*
+
+  publish-release:
+    if: github.ref_name == 'main'
+    needs: release
+    runs-on: ubuntu-latest
+    environment: main
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Publish GitHub release
+        run: bash src/scripts/publish-release.sh "${{ inputs.version }}" "${{ inputs.prerelease }}" artifacts
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
