@@ -10,12 +10,18 @@ fi
 EXECUTABLE_PATH="${1:-dist/destino}"
 ARCHIVE_PATH="${2:-dist/destino-notarization.zip}"
 TEMP_DIR="${RUNNER_TEMP:-${TMPDIR:-/tmp}}"
+ENTITLEMENTS_PATH="${ENTITLEMENTS_PATH:-src/sea/entitlements.plist}"
 KEYCHAIN_PASSWORD="${APPLE_KEYCHAIN_PASSWORD:-$(uuidgen)}"
 KEYCHAIN_PATH="$TEMP_DIR/destino-signing.keychain-db"
 CERTIFICATE_PATH="$TEMP_DIR/destino-certificate.p12"
 
 if [[ ! -f "$EXECUTABLE_PATH" ]]; then
   echo "Executable not found: $EXECUTABLE_PATH"
+  exit 1
+fi
+
+if [[ ! -f "$ENTITLEMENTS_PATH" ]]; then
+  echo "Entitlements file not found: $ENTITLEMENTS_PATH"
   exit 1
 fi
 
@@ -56,7 +62,7 @@ if [[ -z "$SIGNING_IDENTITY" ]]; then
   exit 1
 fi
 
-codesign --force --timestamp --options runtime --sign "$SIGNING_IDENTITY" "$EXECUTABLE_PATH"
+codesign --force --timestamp --options runtime --entitlements "$ENTITLEMENTS_PATH" --sign "$SIGNING_IDENTITY" "$EXECUTABLE_PATH"
 codesign --verify --strict --verbose=2 "$EXECUTABLE_PATH"
 
 ditto -c -k --keepParent "$EXECUTABLE_PATH" "$ARCHIVE_PATH"

@@ -3,7 +3,7 @@
   "mainFormat": "module",
   "output": "./dist/destino",
   "execArgv": ["--no-warnings", "--experimental-ffi"],
-  "useCodeCache": false,
+  "useCodeCache": true,
   "assets": {
     "destino.so": "./dist/destino.so",
     "opentui.so": "./node_modules/@opentui/core-linux-x64/libopentui.so",

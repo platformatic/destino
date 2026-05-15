@@ -106,7 +106,7 @@ async function main () {
         mainFormat: 'module',
         output: config.output,
         execArgv: ['--no-warnings', '--experimental-ffi'],
-        useCodeCache: false,
+        useCodeCache: true,
         assets: {
           [config.nativeAsset]: config.nativePath,
           [config.opentuiAsset]: opentuiPath,
