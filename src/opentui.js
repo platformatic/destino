@@ -17,8 +17,11 @@ export class OpenTUI {
   #setupTerminal
   #getNextBuffer
   #bufferClear
+  #bufferPushScissorRect
+  #bufferPopScissorRect
   #bufferDrawText
   #bufferDrawSuperSampleBuffer
+  #bufferFillRect
   #render
   #destroyRenderer
 
@@ -43,8 +46,11 @@ export class OpenTUI {
         setupTerminal,
         getNextBuffer,
         bufferClear,
+        bufferPushScissorRect,
+        bufferPopScissorRect,
         bufferDrawText,
         bufferDrawSuperSampleBuffer,
+        bufferFillRect,
         render,
         destroyRenderer
       }
@@ -69,12 +75,24 @@ export class OpenTUI {
         parameters: ['pointer', 'pointer'],
         result: 'void'
       },
+      bufferPushScissorRect: {
+        parameters: ['pointer', 'int32', 'int32', 'uint32', 'uint32'],
+        result: 'void'
+      },
+      bufferPopScissorRect: {
+        parameters: ['pointer'],
+        result: 'void'
+      },
       bufferDrawText: {
         parameters: ['pointer', 'pointer', 'uint32', 'uint32', 'uint32', 'pointer', 'pointer', 'uint32'],
         result: 'void'
       },
       bufferDrawSuperSampleBuffer: {
         parameters: ['pointer', 'uint32', 'uint32', 'pointer', 'uint64', 'uint8', 'uint32'],
+        result: 'void'
+      },
+      bufferFillRect: {
+        parameters: ['pointer', 'uint32', 'uint32', 'uint32', 'uint32', 'pointer'],
         result: 'void'
       },
       render: {
@@ -94,8 +112,11 @@ export class OpenTUI {
     this.#setupTerminal = setupTerminal
     this.#getNextBuffer = getNextBuffer
     this.#bufferClear = bufferClear
+    this.#bufferPushScissorRect = bufferPushScissorRect
+    this.#bufferPopScissorRect = bufferPopScissorRect
     this.#bufferDrawText = bufferDrawText
     this.#bufferDrawSuperSampleBuffer = bufferDrawSuperSampleBuffer
+    this.#bufferFillRect = bufferFillRect
     this.#render = render
     this.#destroyRenderer = destroyRenderer
 
@@ -133,8 +154,8 @@ export class OpenTUI {
       scaledFrameBytesPerRow,
       targetCellX,
       targetCellY,
-      targetCellHeight,
-      rightBandCellX
+      targetCellWidth,
+      targetCellHeight
     } = this.#settings
 
     if (this.#frameBuffer.length > 0) {
@@ -156,6 +177,14 @@ export class OpenTUI {
         }
       }
 
+      // Clear the whole back buffer so margins and previously drawn cells cannot
+      // leak into the next centered frame.
+      this.#bufferClear(targetBuffer, this.#blackPointer)
+
+      // OpenTUI's supersample draw call does not accept source bounds, so clip
+      // it to the centered destination rectangle to avoid spilling rightward.
+      this.#bufferPushScissorRect(targetBuffer, targetCellX, targetCellY, targetCellWidth, targetCellHeight)
+
       // OpenTUI consumes a 2x2 supersample pixel grid per terminal cell.
       this.#bufferDrawSuperSampleBuffer(
         targetBuffer,
@@ -166,19 +195,9 @@ export class OpenTUI {
         0,
         scaledFrameBytesPerRow
       )
+      this.#bufferPopScissorRect(targetBuffer)
 
       this.#render(this.#renderer, 1)
-
-      if (rightBandCellX < process.stdout.columns) {
-        // Clear only the trailing terminal margin; OpenTUI can leave stale cells there.
-        let clearRightBand = ''
-
-        for (let y = 0; y < targetCellHeight; y++) {
-          clearRightBand += `\x1b[${targetCellY + y + 1};${rightBandCellX + 1}H\x1b[K`
-        }
-
-        process.stdout.write(clearRightBand)
-      }
     }
   }
 
@@ -215,7 +234,7 @@ export class OpenTUI {
     const targetCellHeight = scaledFrameHeight / samplesPerCellY
     const targetCellX = Math.floor((rendererWidth - targetCellWidth) / 2)
     const targetCellY = Math.floor((rendererHeight - targetCellHeight) / 2)
-    const rightBandCellX = targetCellX + targetCellWidth
+
     const scaledFrameBytesPerRow = scaledFrameWidth * 4
     const scaledFrame = Buffer.allocUnsafe(scaledFrameBytesPerRow * scaledFrameHeight)
     const scaledFramePointer = getRawPointer(scaledFrame)
@@ -235,8 +254,8 @@ export class OpenTUI {
       scaledFrameBytesPerRow,
       targetCellX,
       targetCellY,
-      targetCellHeight,
-      rightBandCellX
+      targetCellWidth,
+      targetCellHeight
     }
 
     this.#setClearOnShutdown(this.#renderer, 1)
