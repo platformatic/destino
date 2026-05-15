@@ -38,6 +38,10 @@ for artifact_directory in "${artifact_directories[@]}"; do
 
   asset_name="$(basename "$artifact_directory").zip"
 
+  if [[ -f "$artifact_directory/destino" ]]; then
+    chmod a+x "$artifact_directory/destino"
+  fi
+
   (
     cd "$artifact_directory"
     zip -q -r "../../$release_assets_dir/$asset_name" .
