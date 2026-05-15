@@ -69,6 +69,14 @@ async function createConfig (configPath) {
   }
 }
 
+// Compact arrays of strings into single lines for better readability
+export function serializeConfig (config, configPath) {
+  return JSON.stringify(config, null, 2).replaceAll(
+    /\[\s+((.+\n){1,2})\s+\]/gm,
+    (_, g1) => `[${g1.replaceAll(/\s+/g, ' ').trim()}]`
+  )
+}
+
 export async function loadConfig () {
   // Load the destino.json file
   const configPath = resolve(process.cwd(), process.argv[2] ?? 'destino.json')
@@ -76,12 +84,7 @@ export async function loadConfig () {
   if (!existsSync(configPath)) {
     await writeFile(
       configPath,
-      JSON.stringify(
-        { ...defaultConfig, wadPath: await findWadPath(), sf2Path: await findSF2Path() },
-        null,
-        2
-        // Compact arrays of strings into single lines for better readability
-      ).replaceAll(/\[\s+((.+\n){1,2})\s+\]/gm, (_, g1) => `[${g1.replaceAll(/\s+/g, ' ').trim()}]`),
+      serializeConfig({ ...defaultConfig, wadPath: await findWadPath(), sf2Path: await findSF2Path() }),
       'utf8'
     )
 
