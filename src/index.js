@@ -50,22 +50,10 @@ export async function main (context) {
   const columns = process.stdout.columns ?? 0
   const terminalArea = rows * columns
   const canUseKittyRenderer = KittyRenderer.isSupported()
-  const maxOpenTUIArea = 40000
 
   let useKittyRenderer = process.env.USE_KITTY_RENDERER === 'true'
 
-  // OpenTUI can silently drop frames on very large terminals, so require Kitty there.
-  if (terminalArea > maxOpenTUIArea) {
-    if (!canUseKittyRenderer) {
-      console.error(`Your terminal size is currently ${columns} columns by ${rows} rows.`)
-      console.error(
-        `Destino requires Kitty support when the terminal area exceeds ${maxOpenTUIArea} cells. Resize your terminal and try again.`
-      )
-      return
-    }
-
-    useKittyRenderer = true
-  } else if (columns < 160 || rows < 100) {
+  if (columns < 160 || rows < 100) {
     if (!canUseKittyRenderer) {
       console.error(`Your terminal size is currently ${columns} columns by ${rows} rows.`)
       console.error(

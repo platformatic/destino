@@ -19,29 +19,43 @@ dependencies () {
 
 doomgeneric () {
   curl -sSL -o doomgeneric.zip https://github.com/ozkl/doomgeneric/archive/refs/heads/master.zip
-  unzip doomgeneric.zip
+  unzip -q doomgeneric.zip
   mv doomgeneric-master doomgeneric
   rm doomgeneric.zip
 }
 
 opentui () {
-  PLATFORM=$(node -e "console.log(process.platform)")
-  ARCH=$(node -e "console.log(process.arch)")
-  SUFFIX=$(node --experimental-ffi -e "console.log(require('node:ffi').suffix)")
+  PLATFORM=$(node -e "console.log(process.platform === 'darwin' ? 'macos' : 'linux')")
+  ARCH=$(node -e "console.log(process.arch === 'arm64' ? 'aarch64' : 'x64')")
+  SUFFIX=$(node --no-warnings --experimental-ffi -e "console.log(require('node:ffi').suffix)")
+  ZIG_VERSION=0.15.2
 
-  ARCHIVE=$(curl -sSL https://registry.npmjs.org/@opentui/core-$PLATFORM-$ARCH/latest | yq .dist.tarball)
-  curl -sSL -o opentui.tgz "$ARCHIVE"
-  mkdir -p opentui
-  tar zxf opentui.tgz --strip-components=1 -C opentui package/libopentui.$SUFFIX
-  rm opentui.tgz
+  # Download Zig
+  curl -sSL -o zig.tar.xz https://ziglang.org/download/$ZIG_VERSION/zig-$ARCH-$PLATFORM-$ZIG_VERSION.tar.xz
+  tar -xf zig.tar.xz
+  rm zig.tar.xz
+
+  # Download OpenTUI
+  curl -sSL -o opentui.zip https://github.com/anomalyco/opentui/archive/refs/heads/main.zip
+  unzip -q opentui.zip
+  mkdir opentui
+  rm opentui.zip
+
+  # Patch and build OpenTUI
+  cd opentui-main/packages/core/src/zig
+  sed -i.bak 's/const OUTPUT_BUFFER_SIZE = 1024 \* 1024 \* 2;/const OUTPUT_BUFFER_SIZE = 1024 * 1024 * 16;/' renderer.zig
+  ../../../../../zig-$ARCH-$PLATFORM-$ZIG_VERSION/zig build -Doptimize=ReleaseFast
+
+  cd ../../../../..
+  mv opentui-main/packages/core/src/zig/lib/$ARCH-$PLATFORM/libopentui.$SUFFIX opentui
+  rm -rf opentui-main zig-$ARCH-$PLATFORM-$ZIG_VERSION
 }
 
 freedoom () {
   curl -sSL -o freedoom.zip https://github.com/freedoom/freedoom/releases/download/v0.13.0/freedoom-0.13.0.zip
-  unzip freedoom.zip
+  unzip -q freedoom.zip
   mv freedoom-0.13.0 freedoom
   rm freedoom.zip
-
 }
 
 generalusersf2 () {
