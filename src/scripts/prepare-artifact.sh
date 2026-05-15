@@ -22,3 +22,5 @@ fi
 rm -rf "$artifact_dir"
 mkdir -p "$artifact_dir"
 cp "$source" "$target"
+
+chmod a+x "$target"
