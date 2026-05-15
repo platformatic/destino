@@ -26,7 +26,7 @@ doomgeneric () {
 
 opentui () {
   PLATFORM=$(node -e "console.log(process.platform === 'darwin' ? 'macos' : 'linux')")
-  ARCH=$(node -e "console.log(process.arch === 'arm64' ? 'aarch64' : 'x64')")
+  ARCH=$(node -e "console.log(process.arch === 'arm64' ? 'aarch64' : 'x86_64')")
   SUFFIX=$(node --no-warnings --experimental-ffi -e "console.log(require('node:ffi').suffix)")
   ZIG_VERSION=0.15.2
 
