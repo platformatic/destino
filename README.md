@@ -152,4 +152,4 @@ Default keybindings:
 
 ## License
 
-Apache-2.0 - See [LICENSE](LICENSE) for more information.
+GPL-3.0-or-later - See [LICENSE](LICENSE) for more information.
