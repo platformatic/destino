@@ -4,7 +4,7 @@
   "description": "Doom terminal demo based on Node.js, doomgeneric and OpenTUI",
   "homepage": "https://github.com/platformatic/destino",
   "author": "Platformatic Inc. <oss@platformatic.dev> (https://platformatic.dev)",
-  "license": "Apache-2.0",
+  "license": "GPL-3.0-or-later",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/platformatic/destino.git"
