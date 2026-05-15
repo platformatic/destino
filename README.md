@@ -22,7 +22,7 @@ Rendering is pull-based: Doom marks a frame ready, JavaScript pulls the native f
 
 You need:
 
-1. A Node.js build with `node:ffi` support. At the time of writing this is not released yet and is expected in Node.js 26.1.0. Use a nightly after April 21, 2026, for example `v26.0.0-nightly20260421eb54e709c7`.
+1. A Node.js build with `node:ffi` support.
 2. `cmake`, `clang`, `pkg-config` and `unzip`.
 3. SDL2_mixer development files.
 4. `doomgeneric` sources under `deps/doomgeneric`.

@@ -1,12 +1,19 @@
 import { writeSync } from 'node:fs'
-import { loadConfig } from './config.js'
+import { loadConfig, serializeConfig } from './config.js'
 import { Engine } from './engine.js'
 import { TerminalParser } from './input.js'
 import { KittyRenderer } from './kitty.js'
 import { OpenTUI } from './opentui.js'
 import { cleanupSEA, initSEA } from './sea.js'
 
-function shutdown (runtime, resolve) {
+function printDebugInfo (columns, rows, terminalArea, useKittyRenderer, config) {
+  console.log(`Node.js version: ${process.version}`)
+  console.log(`Screen size: ${columns}x${rows} (${terminalArea} cells)`)
+  console.log(`Renderer: ${useKittyRenderer ? 'Kitty' : 'OpenTUI'}`)
+  console.log(`Configuration: ${serializeConfig(config)}`)
+}
+
+function shutdown (runtime, resolve, columns, rows, terminalArea, useKittyRenderer, config) {
   if (runtime.shuttingDown) {
     return
   }
@@ -34,17 +41,31 @@ function shutdown (runtime, resolve) {
   }
 
   writeSync(process.stdout.fd, '\x1b[<u\x1b[?1049l\x1b[?25h\x1b[2J\x1b[3J\x1b[H')
+  printDebugInfo(columns, rows, terminalArea, useKittyRenderer, config)
   resolve()
 }
 
 export async function main (context) {
   const rows = process.stdout.rows ?? 0
   const columns = process.stdout.columns ?? 0
+  const terminalArea = rows * columns
   const canUseKittyRenderer = KittyRenderer.isSupported()
+  const maxOpenTUIArea = 40000
 
   let useKittyRenderer = process.env.USE_KITTY_RENDERER === 'true'
 
-  if (columns < 160 || rows < 100) {
+  // OpenTUI can silently drop frames on very large terminals, so require Kitty there.
+  if (terminalArea > maxOpenTUIArea) {
+    if (!canUseKittyRenderer) {
+      console.error(`Your terminal size is currently ${columns} columns by ${rows} rows.`)
+      console.error(
+        `Destino requires Kitty support when the terminal area exceeds ${maxOpenTUIArea} cells. Resize your terminal and try again.`
+      )
+      return
+    }
+
+    useKittyRenderer = true
+  } else if (columns < 160 || rows < 100) {
     if (!canUseKittyRenderer) {
       console.error(`Your terminal size is currently ${columns} columns by ${rows} rows.`)
       console.error(
@@ -58,6 +79,12 @@ export async function main (context) {
   const { promise, resolve } = Promise.withResolvers()
   const config = await loadConfig()
 
+  printDebugInfo(columns, rows, terminalArea, useKittyRenderer, config)
+
+  if (process.env.DEBUG === 'true') {
+    return
+  }
+
   // Open FFI libs
   const engine = new Engine()
   const runtime = {
@@ -69,14 +96,14 @@ export async function main (context) {
     shuttingDown: false
   }
 
-  const boundShutdown = shutdown.bind(null, runtime, resolve)
+  const boundShutdown = shutdown.bind(null, runtime, resolve, columns, rows, terminalArea, useKittyRenderer, config)
   process.once('SIGINT', boundShutdown)
   process.once('SIGTERM', boundShutdown)
 
   // Setup modules
   runtime.engine.initialize(config)
   runtime.renderer.setupFrameBuffer()
-  runtime.input.on('quit', () => shutdown(runtime, resolve))
+  runtime.input.on('quit', boundShutdown)
   runtime.input.on('press', doomKey => runtime.engine.sendKey(doomKey, 1))
   runtime.input.on('release', doomKey => runtime.engine.sendKey(doomKey, 0))
   runtime.input.start()
@@ -90,7 +117,7 @@ export async function main (context) {
     runtime.engine.tick()
 
     if (runtime.engine.quitRequested()) {
-      shutdown(runtime, resolve)
+      boundShutdown()
       return
     }
 
