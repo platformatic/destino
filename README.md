@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: MIT -->
+
 # Destino
 
 Destino runs Doom in a terminal using Node.js, [`node:ffi`](https://nodejs.org/api/ffi.html), and [OpenTUI](https://github.com/sst/opentui).
@@ -152,4 +154,8 @@ Default keybindings:
 
 ## License
 
-GPL-3.0-or-later - See [LICENSE](LICENSE) for more information.
+Destino is distributed as GPL-3.0-or-later because the Doom binding links with the GPL-licensed Doom engine sources. See [LICENSE](LICENSE).
+
+Files that do not directly bind to, build, or embed the Doom engine are licensed under the MIT License and carry an `SPDX-License-Identifier: MIT` header. See [LICENSE-MIT](LICENSE-MIT).
+
+The files that directly bind to or build the Doom engine carry an `SPDX-License-Identifier: GPL-3.0-or-later` header.

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 import { toBuffer } from 'node:ffi'
 
 const graphicsChunkSize = 4096

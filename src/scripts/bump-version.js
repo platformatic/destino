@@ -1,4 +1,5 @@
 #!/usr/bin/env -S node
+// SPDX-License-Identifier: MIT
 
 import { execSync } from 'node:child_process'
 import { readFile, writeFile } from 'node:fs/promises'

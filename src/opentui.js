@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 import { dlopen, getRawPointer, suffix, toBuffer } from 'node:ffi'
 import { resolve } from 'node:path'
 import { isSea } from 'node:sea'

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 import { dlopen, getRawPointer, suffix, toString } from 'node:ffi'
 import { resolve } from 'node:path'
 import { isSea } from 'node:sea'

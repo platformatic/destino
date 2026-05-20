@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 import { existsSync } from 'node:fs'
 import { glob, readFile, writeFile } from 'node:fs/promises'
 import { resolve } from 'node:path'

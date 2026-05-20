@@ -1,2 +1,4 @@
+# SPDX-License-Identifier: MIT
+
 allowBuilds:
   unrs-resolver: true
