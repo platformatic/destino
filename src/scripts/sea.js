@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// SPDX-License-Identifier: MIT
 
 import { spawn } from 'node:child_process'
 import { suffix } from 'node:ffi'

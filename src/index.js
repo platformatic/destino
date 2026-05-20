@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+
 import { writeSync } from 'node:fs'
 import { loadConfig, serializeConfig } from './config.js'
 import { Engine } from './engine.js'
