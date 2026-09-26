@@ -9,6 +9,7 @@
     "config.schema.json": "src/config.schema.json",
     "destino.so": "./deps/engine/destino.so",
     "libSDL3.so": "./deps/audio/lib/libSDL3.so",
+    "libopentui.so": "./deps/video/libopentui.so",
     "wads/freedoom1.wad": "deps/freedoom/freedoom1.wad",
     "wads/freedoom2.wad": "deps/freedoom/freedoom2.wad",
     "midi/GeneralUser-GS.sf2": "deps/audio/font/GeneralUser-GS.sf2"

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 
 import { execFile } from 'node:child_process'
+import { createHash } from 'node:crypto'
 import { dlopen } from 'node:ffi'
 import { cp, mkdir, mkdtemp, readFile, readdir, realpath, rename, rm, writeFile } from 'node:fs/promises'
 import { basename, resolve } from 'node:path'
@@ -179,7 +180,25 @@ async function installAudio (libraries) {
   })
 }
 
+async function installVideo (target) {
+  await install('video', async directory => {
+    const data = await metadata(`https://registry.npmjs.org/@opentui/core-${target}/0.5.11`)
+    const path = resolve(directory, 'package.tgz')
+    const bytes = await download(data.dist.tarball, path)
+    if (`sha512-${createHash('sha512').update(bytes).digest('base64')}` !== data.dist.integrity) {
+      throw new DependencyError('OpenTUI archive integrity mismatch')
+    }
+    const filename = target.startsWith('darwin-') ? 'libopentui.dylib' : 'libopentui.so'
+    await run('tar', ['-xzf', path, '-C', directory, '--strip-components=1', `package/${filename}`])
+    await rm(path)
+  })
+}
+
 async function main () {
+  const target = process.argv[2] ?? currentTarget
+  if (!targets.includes(target)) {
+    throw new DependencyError(`Unsupported video target: ${target}`)
+  }
   if (!targets.includes(currentTarget)) {
     throw new DependencyError(`Unsupported host: ${currentTarget}`)
   }
@@ -188,6 +207,7 @@ async function main () {
   await installDoomGeneric()
   await installFreedoom()
   await installAudio([sdl])
+  await installVideo(target)
   info('All dependencies are ready.')
 }
 

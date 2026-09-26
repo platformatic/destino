@@ -7,6 +7,7 @@ import { loadConfig, serializeConfig } from './config.js'
 import { Engine } from './engine.js'
 import { TerminalParser } from './input.js'
 import { Video } from './video.js'
+import { startupProgress } from './loader.js'
 
 function printDebugInfo (columns, rows, terminalArea, config) {
   console.log(`Node.js version: ${process.version}`)
@@ -85,6 +86,7 @@ export async function main (context) {
     runtime.audio = new Audio()
     runtime.renderer.setStatus(`${basename(config.wadPath || 'freedoom1.wad')} | Ctrl+C: Quit`)
     runtime.renderer.setInfo(`${engine.getFrameWidth()}x${engine.getFrameHeight()} | Audio: SDL3 44.1 kHz stereo`)
+    startupProgress('Initializing terminal graphics and keyboard...')
     runtime.renderer.setupFrameBuffer()
     runtime.input.on('quit', boundShutdown)
     runtime.input.on('press', doomKey => runtime.engine.sendKey(doomKey, 1))

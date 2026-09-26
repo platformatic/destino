@@ -67,8 +67,8 @@ export class TerminalParser extends EventEmitter {
     this.#wasRaw = this.#stdin.isRaw
     this.#startup = Promise.withResolvers()
     const startup = this.#startup
-    // Query the enabled flags and primary device attributes. A DA response
-    // without the required flags means the terminal cannot provide this mode.
+    // Query the enabled flags. Device-attribute replies may also come from
+    // OpenTUI's startup queries, so only the flags response completes detection.
     // https://sw.kovidgoyal.net/kitty/keyboard-protocol/#detection-of-support-for-this-protocol
     this.#startupTimer = setTimeout(() => {
       startup.reject(new InputError('Terminal did not confirm Kitty keyboard protocol support within 1500ms'))
@@ -274,14 +274,13 @@ export class TerminalParser extends EventEmitter {
     if (flags) {
       if ((Number(flags[1]) & 11) === 11) {
         this.#startup?.resolve()
-      } else {
-        this.#startup?.reject(new InputError('Terminal does not support the required Kitty keyboard flags (11)'))
       }
+      // OpenTUI may have queried the old flags before we enabled ours. Ignore
+      // that stale reply and let the startup deadline reject unsupported modes.
       return null
     }
     // eslint-disable-next-line no-control-regex
     if (/^\x1b\[\?[\d;]*c$/.test(s)) {
-      this.#startup?.reject(new InputError('Terminal does not support the Kitty keyboard protocol'))
       return null
     }
 

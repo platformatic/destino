@@ -2,7 +2,7 @@
 
 import { dlopen, getRawPointer, toBuffer, toString } from 'node:ffi'
 import { AudioError, LoaderError } from './errors.js'
-import { libraryPath, loadGameAssets } from './loader.js'
+import { libraryPath, loadGameAssets, startupProgress } from './loader.js'
 
 export class Engine {
   #lib
@@ -71,9 +71,11 @@ export class Engine {
     const assets = loadGameAssets(config)
     const args = [process.execPath, '-iwad', assets.wadPath]
     // SAFETY: Both loaders copy the borrowed buffers during these synchronous calls.
+    startupProgress('Preparing in-memory game assets...')
     if (assets.wad && !this.#mountFiles(assets.wadPath, assets.wad, BigInt(assets.wad.length), assets.saveDirectory)) {
       throw new LoaderError('Cannot initialize in-memory game files')
     }
+    startupProgress('Initializing the soundfont synthesizer...')
     if (assets.font.length > 0x7fffffff || !this.#loadSoundfont(assets.font, assets.font.length)) {
       throw new AudioError(`Cannot load SF2 soundfont: ${assets.fontPath}`)
     }
@@ -93,6 +95,7 @@ export class Engine {
       process.title = toString(cstr)
     })
 
+    startupProgress('Initializing Doom...')
     this.init(args.length, argsBuffer, this.#setWindowTitle)
   }
 

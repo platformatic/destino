@@ -1,7 +1,7 @@
 {
   "name": "destino",
   "version": "0.2.5",
-  "description": "Doom terminal demo based on Node.js, doomgeneric and Kitty Graphics",
+  "description": "Doom terminal demo based on Node.js, doomgeneric and OpenTUI's Kitty Graphics renderer",
   "homepage": "https://github.com/platformatic/destino",
   "author": "Platformatic Inc. <oss@platformatic.dev> (https://platformatic.dev)",
   "license": "GPL-3.0-or-later",
@@ -13,7 +13,8 @@
     "doom",
     "doomgeneric",
     "freedoom",
-    "kitty"
+    "kitty",
+    "opentui"
   ],
   "bugs": {
     "url": "https://github.com/platformatic/destino/issues"

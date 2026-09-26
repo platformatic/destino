@@ -1,13 +1,23 @@
 // SPDX-License-Identifier: MIT
 
 import { suffix } from 'node:ffi'
-import { mkdirSync, readFileSync } from 'node:fs'
+import { mkdirSync, readFileSync, writeSync } from 'node:fs'
 import { glob } from 'node:fs/promises'
 import { basename, resolve } from 'node:path'
 import { isSea } from 'node:sea'
 import { LoaderError } from './errors.js'
 
 export const packaged = isSea()
+
+export function startupProgress (message) {
+  if (!packaged) {
+    return
+  }
+  // Flush before synchronous FFI/file work so progress is visible immediately.
+  // These messages are emitted only before OpenTUI takes over the terminal.
+  const line = `--> ${message}\n`
+  writeSync(process.stdout.fd, process.stdout.isTTY ? `\x1b[36m${line}\x1b[0m` : line)
+}
 
 // With useVfs, the bundled ESM entry point lives at the root of the SEA mount.
 // Obtain that location from Node rather than constructing a virtual mount path.
@@ -16,6 +26,11 @@ function assetPath (bundled, development) {
 }
 
 export function libraryPath (name) {
+  const label = { engine: 'Doom engine', video: 'OpenTUI', audio: 'SDL3' }[name]
+  startupProgress(`Loading ${label} native library...`)
+  if (name === 'video') {
+    return assetPath(`libopentui.${suffix}`, `video/libopentui.${suffix}`)
+  }
   return name === 'engine'
     ? assetPath(`destino.${suffix}`, `engine/destino.${suffix}`)
     : assetPath(`libSDL3.${suffix}`, `audio/lib/libSDL3.${suffix}`)
@@ -43,7 +58,9 @@ export function loadGameAssets (config) {
     ? resolve(process.cwd(), config.sf2Path)
     : assetPath('midi/GeneralUser-GS.sf2', 'audio/font/GeneralUser-GS.sf2')
   try {
+    startupProgress('Reading WAD data...')
     const wad = packaged ? readFileSync(wadPath) : null
+    startupProgress('Reading SF2 soundfont...')
     const font = readFileSync(fontPath)
     const saveDirectory = packaged ? resolve(process.cwd(), 'saves', basename(wadPath)) : null
     if (saveDirectory) {

@@ -2,7 +2,7 @@
 
 # Destino
 
-Destino runs Doom in a terminal using Node.js, [`node:ffi`](https://nodejs.org/api/ffi.html), and the [Kitty Graphics protocol](https://sw.kovidgoyal.net/kitty/graphics-protocol/).
+Destino runs Doom in a terminal using Node.js, [`node:ffi`](https://nodejs.org/api/ffi.html), and [OpenTUI](https://github.com/sst/opentui)'s [Kitty Graphics](https://sw.kovidgoyal.net/kitty/graphics-protocol/) renderer.
 
 The Doom engine is built from [doomgeneric](https://github.com/ozkl/doomgeneric) as a native shared library. Node.js owns the application loop, forwards terminal input to Doom, reads Doom's framebuffer through FFI, and renders it with Kitty Graphics.
 
@@ -20,10 +20,10 @@ The project is split into a small native platform layer and a JavaScript runtime
 1. `src/native/main.c` implements the platform callbacks required by `doomgeneric`, including input, timing, frame readiness, and framebuffer access.
 2. `src/engine.js` loads the Doom shared library through `node:ffi` and exposes a small JavaScript wrapper around the native functions.
 3. `src/input.js` parses terminal keyboard input, including Kitty keyboard protocol events, and maps configured keys to Doom key codes.
-4. `src/video.js` converts Doom's framebuffer to RGBA and sends it directly to the terminal using Kitty Graphics.
+4. `src/video.js` converts Doom's framebuffer to RGBA and presents it through OpenTUI's native Kitty Graphics renderer. `src/video-output.js` drains native output and applies the CMUX placement fix.
 5. `src/index.js` wires everything together and runs Doom at 35 Hz.
 
-Rendering is pull-based: Doom marks a frame ready and JavaScript pulls the native framebuffer. The video module owns Kitty Graphics transmission, placement, and image cleanup. Kitty is the only renderer; terminal dimensions no longer select a fallback.
+JavaScript pulls the native framebuffer on every tick. OpenTUI owns Kitty Graphics transmission, placement, synchronization, text rendering and image cleanup. Kitty Graphics is the only video backend; no character-cell fallback is used.
 
 ## Requirements
 
@@ -92,10 +92,11 @@ deps/
 ├── engine/
 │   └── src/      # Only .c and .h files from the latest default-branch commit
 ├── freedoom/     # Only .wad files from the latest stable release
-└── audio/
-    ├── lib/      # Only libSDL3.dylib or libSDL3.so
-    ├── src/      # Unmodified TinySoundFont and TinyMidiLoader headers
-    └── font/GeneralUser-GS.sf2
+├── audio/
+│   ├── lib/      # Only libSDL3.dylib or libSDL3.so
+│   ├── src/      # Unmodified TinySoundFont and TinyMidiLoader headers
+│   └── font/GeneralUser-GS.sf2
+└── video/        # OpenTUI 0.5.11: libopentui.dylib or libopentui.so
 ```
 
 Imported SDL libraries always match the current host
@@ -104,6 +105,10 @@ SDL copies use stable filenames (`libSDL3.dylib` or
 `libSDL3.so`), retaining their original loader
 metadata and external runtime dependencies. This step prepares dependencies;
 it does not produce a standalone binary.
+
+OpenTUI is downloaded from npm and verified against its SHA-512 integrity value.
+By default it matches the host. `pnpm run prepare linux-arm64` selects another
+supported target for OpenTUI only; SDL still comes from the current host.
 
 Rerunning refreshes each managed component after it has been prepared
 successfully. Local changes inside those component directories are replaced;
@@ -194,7 +199,9 @@ Like Principe, video sizing uses the terminal's reported pixel dimensions to
 measure cell geometry. The game starts at full available width and is reduced
 only when its proportional height exceeds the available rows. The framebuffer's
 aspect ratio is preserved to terminal-cell rounding, with centered black margins.
-Pixel geometry is queried again on resize and font/DPI changes; a missing reply
+OpenTUI negotiates Kitty Graphics support; an unsupported terminal fails rather
+than falling back to sixel or character cells. Pixel geometry is queried again
+on resize and font/DPI changes; missing graphics or geometry confirmation
 within 1.5 seconds raises `DESTINO_VIDEO`. Every tick repaints the whole surface,
 including margins and the information bar, even if Doom's frame is unchanged.
 

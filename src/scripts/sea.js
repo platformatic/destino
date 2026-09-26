@@ -12,7 +12,8 @@ function getPlatformConfig () {
       output: './dist/destino',
       nativeAsset: 'destino.dylib',
       nativePath: './deps/engine/destino.dylib',
-      sdlAsset: 'libSDL3.dylib'
+      sdlAsset: 'libSDL3.dylib',
+      videoAsset: 'libopentui.dylib'
     }
   } else {
     return {
@@ -20,7 +21,8 @@ function getPlatformConfig () {
       output: './dist/destino',
       nativeAsset: 'destino.so',
       nativePath: './deps/engine/destino.so',
-      sdlAsset: 'libSDL3.so'
+      sdlAsset: 'libSDL3.so',
+      videoAsset: 'libopentui.so'
     }
   }
 }
@@ -110,6 +112,7 @@ async function main () {
           'config.schema.json': 'src/config.schema.json',
           [config.nativeAsset]: config.nativePath,
           [config.sdlAsset]: sdlPath,
+          [config.videoAsset]: `deps/video/${config.videoAsset}`,
           'wads/freedoom1.wad': 'deps/freedoom/freedoom1.wad',
           'wads/freedoom2.wad': 'deps/freedoom/freedoom2.wad',
           'midi/GeneralUser-GS.sf2': 'deps/audio/font/GeneralUser-GS.sf2'
