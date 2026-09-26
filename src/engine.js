@@ -1,19 +1,20 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-import { dlopen, getRawPointer, suffix, toString } from 'node:ffi'
-import { resolve } from 'node:path'
-import { isSea } from 'node:sea'
-import { getAssetsRoot } from './sea.js'
+import { dlopen, getRawPointer, toBuffer, toString } from 'node:ffi'
+import { AudioError, LoaderError } from './errors.js'
+import { libraryPath, loadGameAssets } from './loader.js'
 
 export class Engine {
   #lib
   #cleanup
   #setWindowTitle
   #destroyed
+  #renderAudio
+  #loadSoundfont
+  #mountFiles
 
   constructor (runtime) {
-    const libPath = resolve(getAssetsRoot(), `destino.${suffix}`)
-    console.log(`Loading doomgeneric from ${libPath}`)
+    const libPath = libraryPath('engine')
 
     const {
       lib,
@@ -27,21 +28,25 @@ export class Engine {
         frame_ready: frameReady,
         clear_frame_ready: clearFrameReady,
         quit_requested: quitRequested,
-        release_audio: releaseAudio,
+        audio_render: renderAudio,
+        audio_load_soundfont: loadSoundfont,
+        files_mount: mountFiles,
         cleanup
       }
     } = dlopen(libPath, {
-      init: { parameters: ['int32', 'pointer', 'string', 'pointer'], result: 'pointer' },
-      send_key: { parameters: ['uint8', 'int32'], result: 'void' },
-      get_framebuffer: { parameters: [], result: 'pointer' },
-      get_frame_width: { parameters: [], result: 'int32' },
-      get_frame_height: { parameters: [], result: 'int32' },
-      frame_ready: { parameters: [], result: 'int32' },
-      clear_frame_ready: { parameters: [], result: 'void' },
-      quit_requested: { parameters: [], result: 'int32' },
-      release_audio: { parameters: [], result: 'void' },
-      cleanup: { parameters: [], result: 'void' },
-      doomgeneric_Tick: { parameters: [], result: 'void' }
+      init: { arguments: ['int32', 'pointer', 'pointer'], return: 'void' },
+      send_key: { arguments: ['uint8', 'int32'], return: 'void' },
+      get_framebuffer: { arguments: [], return: 'pointer' },
+      get_frame_width: { arguments: [], return: 'int32' },
+      get_frame_height: { arguments: [], return: 'int32' },
+      frame_ready: { arguments: [], return: 'int32' },
+      clear_frame_ready: { arguments: [], return: 'void' },
+      quit_requested: { arguments: [], return: 'int32' },
+      audio_render: { arguments: ['int32'], return: 'pointer' },
+      audio_load_soundfont: { arguments: ['pointer', 'int32'], return: 'int32' },
+      files_mount: { arguments: ['string', 'pointer', 'uint64', 'string'], return: 'int32' },
+      cleanup: { arguments: [], return: 'void' },
+      doomgeneric_Tick: { arguments: [], return: 'void' }
     })
 
     this.#lib = lib
@@ -56,12 +61,22 @@ export class Engine {
     this.frameReady = frameReady
     this.clearFrameReady = clearFrameReady
     this.quitRequested = quitRequested
-    this.releaseAudio = releaseAudio
+    this.#renderAudio = renderAudio
+    this.#loadSoundfont = loadSoundfont
+    this.#mountFiles = mountFiles
   }
 
   initialize (config) {
     // Convert all arguments to pointers to get a char**
-    const args = [process.execPath, '-iwad', this.#getWadPath(config)]
+    const assets = loadGameAssets(config)
+    const args = [process.execPath, '-iwad', assets.wadPath]
+    // SAFETY: Both loaders copy the borrowed buffers during these synchronous calls.
+    if (assets.wad && !this.#mountFiles(assets.wadPath, assets.wad, BigInt(assets.wad.length), assets.saveDirectory)) {
+      throw new LoaderError('Cannot initialize in-memory game files')
+    }
+    if (assets.font.length > 0x7fffffff || !this.#loadSoundfont(assets.font, assets.font.length)) {
+      throw new AudioError(`Cannot load SF2 soundfont: ${assets.fontPath}`)
+    }
 
     if (config.demo) {
       args.push('-playdemo', config.demo)
@@ -74,11 +89,16 @@ export class Engine {
     }
 
     // Initialize the game
-    this.#setWindowTitle = this.#lib.registerCallback({ parameters: ['string'], result: 'void' }, cstr => {
+    this.#setWindowTitle = this.#lib.registerCallback({ arguments: ['pointer'], return: 'void' }, cstr => {
       process.title = toString(cstr)
     })
 
-    this.init(args.length, argsBuffer, this.#getSF2Path(config), this.#setWindowTitle)
+    this.init(args.length, argsBuffer, this.#setWindowTitle)
+  }
+
+  renderAudio () {
+    // SAFETY: audio.c returns 1260 stereo int16 frames; copy before its next render.
+    return toBuffer(this.#renderAudio(1260), 1260 * 4)
   }
 
   destroy () {
@@ -89,27 +109,5 @@ export class Engine {
     this.#destroyed = true
     this.#cleanup()
     this.#lib.close()
-  }
-
-  #getWadPath (config) {
-    const path = config.wadPath
-      ? resolve(process.cwd(), config.wadPath)
-      : resolve(getAssetsRoot(), 'wads/freedoom1.wad')
-
-    console.log(`Using WAD file ${path}`)
-    return path
-  }
-
-  #getSF2Path (config) {
-    let path = null
-
-    if (config.sf2Path) {
-      path = resolve(process.cwd(), config.sf2Path)
-    } else if (isSea()) {
-      path = resolve(getAssetsRoot(), 'sf2s/GeneralUser.sf2')
-    }
-
-    console.log(`Using SF2 file ${path}`)
-    return path
   }
 }

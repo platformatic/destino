@@ -13,7 +13,17 @@
     },
     "sf2Path": {
       "type": "string",
-      "description": "Path to an SF2 sound font used by SDL2_mixer."
+      "description": "Optional SF2 soundfont path. Defaults to the bundled GeneralUser GS font."
+    },
+    "showStatus": {
+      "type": "boolean",
+      "default": true,
+      "description": "Reserve the bottom terminal row for WAD, controls, framebuffer resolution and audio information."
+    },
+    "fixVideoIndex": {
+      "type": "boolean",
+      "default": true,
+      "description": "Apply the CMUX rendering workaround by placing Kitty images at z-index -1, above cell backgrounds and below text, so terminal overlays are not covered. Enabled by default; set false to use the terminal's default image stacking."
     },
     "demo": {
       "type": "string",

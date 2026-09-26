@@ -1,15 +1,7 @@
 // SPDX-License-Identifier: MIT
 
 import { EventEmitter } from 'node:events'
-
-const emptyModifiers = {
-  shift: false,
-  alt: false,
-  ctrl: false,
-  super: false,
-  hyper: false,
-  meta: false
-}
+import { InputError } from './errors.js'
 
 export const doomKeys = {
   moveForward: 173,
@@ -37,7 +29,9 @@ export class TerminalParser extends EventEmitter {
   #inputBuffer
   #flushTimer
   #maxBufferLength
-  #ignoreUntil
+  #startup
+  #startupTimer
+  #wasRaw
 
   constructor (keybindings) {
     super()
@@ -60,22 +54,39 @@ export class TerminalParser extends EventEmitter {
     this.#maxBufferLength = 4096
   }
 
-  start () {
+  async start () {
     if (this.#enabled) {
-      return
+      return this.#startup?.promise
     }
 
-    if (!this.#stdin.isTTY || typeof this.#stdin.setRawMode !== 'function') {
-      throw new Error('stdin is not a TTY')
+    if (!this.#stdin.isTTY || !this.#stdout.isTTY || typeof this.#stdin.setRawMode !== 'function') {
+      throw new InputError('Kitty keyboard input requires a TTY on stdin and stdout')
     }
 
     this.#enabled = true
-    this.#stdin.setRawMode(true)
-    this.#stdin.resume()
-    this.#stdin.on('data', this.#onData)
-    this.#stdout.write('\x1b[>11u')
-    // Drop terminal protocol responses and stale input emitted during startup.
-    this.#ignoreUntil = Date.now() + 100
+    this.#wasRaw = this.#stdin.isRaw
+    this.#startup = Promise.withResolvers()
+    const startup = this.#startup
+    // Query the enabled flags and primary device attributes. A DA response
+    // without the required flags means the terminal cannot provide this mode.
+    // https://sw.kovidgoyal.net/kitty/keyboard-protocol/#detection-of-support-for-this-protocol
+    this.#startupTimer = setTimeout(() => {
+      startup.reject(new InputError('Terminal did not confirm Kitty keyboard protocol support within 1500ms'))
+    }, 1500)
+    try {
+      this.#stdin.setRawMode(true)
+      this.#stdin.resume()
+      this.#stdin.on('data', this.#onData)
+      // 1: disambiguation, 2: press/repeat/release, 8: encode every key.
+      this.#stdout.write('\x1b[>11u\x1b[?u\x1b[c')
+      await startup.promise
+    } catch (error) {
+      this.stop()
+      throw error
+    } finally {
+      clearTimeout(this.#startupTimer)
+      this.#startup = null
+    }
   }
 
   stop () {
@@ -84,9 +95,11 @@ export class TerminalParser extends EventEmitter {
     }
 
     this.#enabled = false
+    clearTimeout(this.#startupTimer)
+    this.#startup?.reject(new InputError('Kitty keyboard initialization was interrupted'))
     this.#stdout.write('\x1b[<u')
     this.#stdin.off('data', this.#onData)
-    this.#stdin.setRawMode(false)
+    this.#stdin.setRawMode(this.#wasRaw ?? false)
     this.#stdin.pause()
 
     if (this.#flushTimer !== null) {
@@ -102,11 +115,6 @@ export class TerminalParser extends EventEmitter {
   }
 
   #handleData (buf) {
-    if (Date.now() < this.#ignoreUntil) {
-      this.#inputBuffer = Buffer.alloc(0)
-      return
-    }
-
     this.#inputBuffer = Buffer.concat([this.#inputBuffer, buf])
 
     if (this.#inputBuffer.length > this.#maxBufferLength) {
@@ -136,7 +144,9 @@ export class TerminalParser extends EventEmitter {
       }
 
       this.#inputBuffer = this.#inputBuffer.subarray(result.length)
-      this.#emitParsedEvent(result.event)
+      if (result.event !== null && this.#startup === null) {
+        this.#emitParsedEvent(result.event)
+      }
     }
   }
 
@@ -152,15 +162,9 @@ export class TerminalParser extends EventEmitter {
         return
       }
 
-      if (this.#inputBuffer.length === 1 && this.#inputBuffer[0] === 0x1b) {
-        this.#inputBuffer = this.#inputBuffer.subarray(1)
-        this.#emitParsedEvent(this.#baseKey('escape', Buffer.from([0x1b])))
-        this.#drainInputBuffer()
-      } else if (this.#inputBuffer[0] === 0x1b) {
-        // Timed-out partial escape sequences are terminal noise, not Escape keys.
-        this.#inputBuffer = Buffer.alloc(0)
-      }
-    }, 10)
+      // Kitty encodes Escape explicitly; an incomplete sequence is never a key.
+      this.#inputBuffer = Buffer.alloc(0)
+    }, 1500)
 
     this.#flushTimer.unref()
   }
@@ -218,9 +222,7 @@ export class TerminalParser extends EventEmitter {
     }
 
     if (raw[0] !== 0x1b) {
-      const event = this.#parse(raw.subarray(0, 1))
-
-      return event === null ? { status: 'invalid' } : { status: 'complete', length: 1, event }
+      return { status: 'invalid' }
     }
 
     if (raw.length === 1) {
@@ -228,10 +230,7 @@ export class TerminalParser extends EventEmitter {
     }
 
     if (raw[1] !== 0x5b) {
-      const length = raw.length >= 2 ? 2 : 1
-      const event = this.#parse(raw.subarray(0, length))
-
-      return event === null ? { status: 'invalid' } : { status: 'complete', length, event }
+      return { status: 'invalid' }
     }
 
     if (raw.length < 3) {
@@ -245,18 +244,18 @@ export class TerminalParser extends EventEmitter {
     }
 
     const terminatorIndex = raw.findIndex((byte, index) => {
-      return index >= 2 && (byte === 0x7e || byte === 0x75 || (byte >= 0x41 && byte <= 0x5a))
+      return index >= 2 && byte >= 0x40 && byte <= 0x7e
     })
 
     if (terminatorIndex !== -1) {
       const event = this.#parse(raw.subarray(0, terminatorIndex + 1))
 
-      return event === null ? { status: 'invalid' } : { status: 'complete', length: terminatorIndex + 1, event }
+      return { status: 'complete', length: terminatorIndex + 1, event }
     }
 
     for (let i = 2; i < raw.length; i++) {
       const byte = raw[i]
-      const valid = (byte >= 0x30 && byte <= 0x39) || byte === 0x3b || byte === 0x3a || (byte >= 0x41 && byte <= 0x5a)
+      const valid = byte >= 0x20 && byte <= 0x3f
 
       if (!valid) {
         return { status: 'invalid' }
@@ -269,12 +268,29 @@ export class TerminalParser extends EventEmitter {
   #parse (raw) {
     const s = raw.toString('utf8')
 
+    // Terminal replies are control messages, never game input.
+    // eslint-disable-next-line no-control-regex
+    const flags = /^\x1b\[\?(\d+)u$/.exec(s)
+    if (flags) {
+      if ((Number(flags[1]) & 11) === 11) {
+        this.#startup?.resolve()
+      } else {
+        this.#startup?.reject(new InputError('Terminal does not support the required Kitty keyboard flags (11)'))
+      }
+      return null
+    }
+    // eslint-disable-next-line no-control-regex
+    if (/^\x1b\[\?[\d;]*c$/.test(s)) {
+      this.#startup?.reject(new InputError('Terminal does not support the Kitty keyboard protocol'))
+      return null
+    }
+
     // Kitty CSI u:
     // ESC [ codepoint u
     // ESC [ codepoint ; modifiers u
     // ESC [ codepoint ; modifiers : event u
     // eslint-disable-next-line no-control-regex
-    let m = /^\x1b\[(\d+)(?:;(\d+)(?::(\d+))?)?u$/.exec(s)
+    let m = /^\x1b\[(\d+)(?:;(\d+)(?::([123]))?)?u$/.exec(s)
 
     if (m) {
       const codepoint = Number(m[1])
@@ -301,28 +317,12 @@ export class TerminalParser extends EventEmitter {
       }
     }
 
-    // xterm modified key:
-    // ESC [ 27 ; modifier ; keycode ~
-    // eslint-disable-next-line no-control-regex
-    m = /^\x1b\[27;(\d+);(\d+)~$/.exec(s)
-
-    if (m) {
-      const codepoint = Number(m[2])
-
-      return {
-        event: 'press',
-        key: this.#codepointToKey(codepoint),
-        ...this.#parseModifiers(m[1]),
-        raw
-      }
-    }
-
-    // CSI cursor/navigation keys, including Kitty-style event suffixes:
+    // Kitty retains these CSI encodings for cursor/navigation keys.
     // ESC [ A
     // ESC [ 1 ; modifiers A
     // ESC [ 1 ; modifiers : event A
     // eslint-disable-next-line no-control-regex
-    m = /^\x1b\[(?:\d+(?:;(\d+)(?::(\d+))?)?)?([ABCDHF])$/.exec(s)
+    m = /^\x1b\[(?:1(?:;(\d+)(?::([123]))?)?)?([ABCDHF])$/.exec(s)
 
     if (m) {
       const keys = {
@@ -356,74 +356,16 @@ export class TerminalParser extends EventEmitter {
       }
     }
 
-    // Common ANSI escape sequences
-    const ansi = {
-      '\x1b[A': 'up',
-      '\x1b[B': 'down',
-      '\x1b[C': 'right',
-      '\x1b[D': 'left',
-      '\x1b[3~': 'delete',
-      '\x1b[H': 'home',
-      '\x1b[F': 'end'
-    }
-
-    if (ansi[s]) {
-      return this.#baseKey(ansi[s], raw)
-    }
-
-    // Alt + ASCII char = ESC prefix
-    if (raw.length === 2 && raw[0] === 0x1b) {
+    // Insert/Delete/Page keys use Kitty's tilde form, including event types.
+    // eslint-disable-next-line no-control-regex
+    m = /^\x1b\[(2|3|5|6|7|8)(?:;(\d+)(?::([123]))?)?~$/.exec(s)
+    if (m) {
+      const keys = { 2: 'insert', 3: 'delete', 5: 'pageup', 6: 'pagedown', 7: 'home', 8: 'end' }
       return {
-        event: 'press',
-        key: String.fromCharCode(raw[1]).toLowerCase(),
-        ...emptyModifiers,
-        alt: true,
-        shift: raw[1] >= 65 && raw[1] <= 90,
+        event: m[3] === '3' ? 'release' : 'press',
+        key: keys[m[1]],
+        ...this.#parseModifiers(m[2] ?? 1),
         raw
-      }
-    }
-
-    if (raw.length === 1) {
-      const b = raw[0]
-
-      switch (b) {
-        case 0x1b:
-          return this.#baseKey('escape', raw)
-        case 0x7f:
-          return this.#baseKey('backspace', raw)
-        case 0x09:
-          return this.#baseKey('tab', raw)
-        case 0x0d:
-        case 0x0a:
-          return this.#baseKey('enter', raw)
-        case 0x20:
-          return this.#baseKey('space', raw)
-      }
-
-      // Ctrl+[a-z]
-      if (b >= 1 && b <= 26) {
-        return {
-          key: String.fromCharCode(b + 96),
-          event: 'press',
-          ...emptyModifiers,
-          ctrl: true,
-          raw
-        }
-      }
-
-      // ASCII
-      if (b >= 0x20 && b <= 0x7e) {
-        const ch = String.fromCharCode(b)
-
-        return {
-          key: ch.toLowerCase(),
-          event: 'press',
-          ...emptyModifiers,
-          ctrl: false,
-          alt: false,
-          shift: raw[0] >= 65 && raw[0] <= 90,
-          raw
-        }
       }
     }
 
@@ -460,15 +402,6 @@ export class TerminalParser extends EventEmitter {
       super: Boolean(mask & 8),
       hyper: Boolean(mask & 16),
       meta: Boolean(mask & 32)
-    }
-  }
-
-  #baseKey (key, raw) {
-    return {
-      event: 'press',
-      key,
-      ...emptyModifiers,
-      raw
     }
   }
 }

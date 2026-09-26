@@ -1,7 +1,7 @@
 {
   "name": "destino",
   "version": "0.2.5",
-  "description": "Doom terminal demo based on Node.js, doomgeneric and OpenTUI",
+  "description": "Doom terminal demo based on Node.js, doomgeneric and Kitty Graphics",
   "homepage": "https://github.com/platformatic/destino",
   "author": "Platformatic Inc. <oss@platformatic.dev> (https://platformatic.dev)",
   "license": "GPL-3.0-or-later",
@@ -13,7 +13,7 @@
     "doom",
     "doomgeneric",
     "freedoom",
-    "opentui"
+    "kitty"
   ],
   "bugs": {
     "url": "https://github.com/platformatic/destino/issues"
@@ -21,16 +21,15 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "start": "node --no-warnings --experimental-ffi src/index.js",
-    "build": "./src/scripts/build.sh",
+    "start": "node --no-warnings src/index.js",
+    "build": "node ./src/scripts/build.js",
     "lint": "eslint --cache",
     "clean": "rm -rf dist tmp",
     "distclean": "rm -rf deps dist tmp",
-    "format": "prettier -w src && clang-format -i src/native/main.c",
-    "dependencies": "bash ./src/scripts/install.sh",
+    "format": "prettier -w src && clang-format -i src/native/main.c src/native/audio.c",
+    "prepare": "node --no-warnings ./src/scripts/dependencies.js",
     "notarize:mac": "bash ./src/scripts/notarize-macos.sh",
-    "sign:win": "powershell -ExecutionPolicy Bypass -File ./src/scripts/sign-windows.ps1",
-    "sea": "node --experimental-ffi ./src/scripts/sea.js"
+    "sea": "node ./src/scripts/sea.js"
   },
   "devDependencies": {
     "eslint": "^9.35.0",
@@ -41,6 +40,6 @@
     "semver": "^7.7.4"
   },
   "engines": {
-    "node": ">=26.1.0"
+    "node": ">=26.10.0"
   }
 }

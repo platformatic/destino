@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: MIT
 
 import { spawn } from 'node:child_process'
-import { suffix } from 'node:ffi'
 import { chmod, mkdir, rm, writeFile } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 
@@ -12,18 +11,16 @@ function getPlatformConfig () {
       platform: 'darwin',
       output: './dist/destino',
       nativeAsset: 'destino.dylib',
-      nativePath: './dist/destino.dylib',
-      opentuiAsset: 'opentui.dylib',
-      opentuiLibrary: 'libopentui.dylib'
+      nativePath: './deps/engine/destino.dylib',
+      sdlAsset: 'libSDL3.dylib'
     }
   } else {
     return {
       platform: 'linux',
       output: './dist/destino',
       nativeAsset: 'destino.so',
-      nativePath: './dist/destino.so',
-      opentuiAsset: 'opentui.so',
-      opentuiLibrary: 'libopentui.so'
+      nativePath: './deps/engine/destino.so',
+      sdlAsset: 'libSDL3.so'
     }
   }
 }
@@ -97,7 +94,7 @@ async function main () {
   await mkdir('tmp', { recursive: true })
 
   const nodeBinary = await getNodeBinary({ platform: config.platform, arch })
-  const opentuiPath = resolve(import.meta.dirname, `../../deps/opentui/libopentui.${suffix}`)
+  const sdlPath = resolve(import.meta.dirname, `../../deps/audio/lib/${config.sdlAsset}`)
 
   await writeFile(
     'tmp/sea.json',
@@ -106,14 +103,16 @@ async function main () {
         main: './dist/index.js',
         mainFormat: 'module',
         output: config.output,
-        execArgv: ['--no-warnings', '--experimental-ffi'],
-        useCodeCache: true,
+        execArgv: ['--no-warnings'],
+        useCodeCache: false,
+        useVfs: true,
         assets: {
+          'config.schema.json': 'src/config.schema.json',
           [config.nativeAsset]: config.nativePath,
-          [config.opentuiAsset]: opentuiPath,
-          'wads/freedoom1.wad': 'dist/wads/freedoom1.wad',
-          'wads/freedoom2.wad': 'dist/wads/freedoom2.wad',
-          'sf2s/GeneralUser.sf2': './dist/sf2s/GeneralUser.sf2'
+          [config.sdlAsset]: sdlPath,
+          'wads/freedoom1.wad': 'deps/freedoom/freedoom1.wad',
+          'wads/freedoom2.wad': 'deps/freedoom/freedoom2.wad',
+          'midi/GeneralUser-GS.sf2': 'deps/audio/font/GeneralUser-GS.sf2'
         }
       },
       null,
@@ -122,6 +121,11 @@ async function main () {
   )
 
   await run(nodeBinary, ['--build-sea', 'tmp/sea.json'])
+  if (process.platform === 'darwin') {
+    // SEA changes the executable image; arm64 macOS requires a new signature.
+    // Release notarization can replace this local ad-hoc signature later.
+    await run('codesign', ['--force', '--sign', '-', config.output])
+  }
 }
 
 await main()

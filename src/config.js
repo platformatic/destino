@@ -1,15 +1,17 @@
 // SPDX-License-Identifier: MIT
 
 import { existsSync } from 'node:fs'
-import { glob, readFile, writeFile } from 'node:fs/promises'
-import { resolve } from 'node:path'
+import { readFile, writeFile } from 'node:fs/promises'
+import { configPath, findWadPath, packaged, schemaPath } from './loader.js'
 
 export const defaultConfigPath = 'destino.json'
 
 export const defaultConfig = {
-  $schema: resolve(import.meta.dirname, 'config.schema.json'),
+  $schema: schemaPath(),
   wadPath: '',
   sf2Path: '',
+  fixVideoIndex: true,
+  showStatus: true,
   keybindings: {
     moveForward: ['w', 'up'],
     moveBackward: ['s', 'down'],
@@ -26,18 +28,6 @@ export const defaultConfig = {
     yes: ['y'],
     no: ['n']
   }
-}
-
-export async function findWadPath () {
-  const candidate = glob('**/freedoom1.wad')
-  const first = await candidate.next()
-  return first.value ? resolve(process.cwd(), first.value) : undefined
-}
-
-export async function findSF2Path () {
-  const candidate = glob('**/*.sf2')
-  const first = await candidate.next()
-  return first.value ? resolve(process.cwd(), first.value) : undefined
 }
 
 async function createConfig (configPath) {
@@ -58,11 +48,13 @@ async function createConfig (configPath) {
   }
 
   const { wadPath: defaultWadPath, sf2Path: defaultSF2Path, keybindings: defaultKeyBindings } = defaultConfig
-  const { wadPath, sf2Path, keybindings, ...rest } = parsed
+  const { wadPath, sf2Path, fixVideoIndex, fixIndexing, showStatus, keybindings, ...rest } = parsed
 
   return {
     wadPath: wadPath ?? defaultWadPath,
     sf2Path: sf2Path ?? defaultSF2Path,
+    fixVideoIndex: fixVideoIndex ?? defaultConfig.fixVideoIndex,
+    showStatus: showStatus ?? defaultConfig.showStatus,
     keybindings: {
       ...defaultKeyBindings,
       ...keybindings
@@ -81,18 +73,21 @@ export function serializeConfig (config, configPath) {
 
 export async function loadConfig () {
   // Load the destino.json file
-  const configPath = resolve(process.cwd(), process.argv[2] ?? 'destino.json')
+  const path = configPath()
 
-  if (!existsSync(configPath)) {
+  if (!existsSync(path)) {
+    if (packaged) {
+      return structuredClone(defaultConfig)
+    }
     await writeFile(
-      configPath,
-      serializeConfig({ ...defaultConfig, wadPath: await findWadPath(), sf2Path: await findSF2Path() }),
+      path,
+      serializeConfig({ ...defaultConfig, wadPath: await findWadPath() }),
       'utf8'
     )
 
-    console.log(`Wrote default config to ${configPath}. Check it out and then run the program again!`)
+    console.log(`Wrote default config to ${path}. Check it out and then run the program again!`)
     process.exit(0)
   }
 
-  return createConfig(configPath)
+  return createConfig(path)
 }

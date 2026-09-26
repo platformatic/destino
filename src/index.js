@@ -1,21 +1,21 @@
 // SPDX-License-Identifier: MIT
 
 import { writeSync } from 'node:fs'
+import { basename } from 'node:path'
+import { Audio } from './audio.js'
 import { loadConfig, serializeConfig } from './config.js'
 import { Engine } from './engine.js'
 import { TerminalParser } from './input.js'
-import { KittyRenderer } from './kitty.js'
-import { OpenTUI } from './opentui.js'
-import { cleanupSEA, initSEA } from './sea.js'
+import { Video } from './video.js'
 
-function printDebugInfo (columns, rows, terminalArea, useKittyRenderer, config) {
+function printDebugInfo (columns, rows, terminalArea, config) {
   console.log(`Node.js version: ${process.version}`)
   console.log(`Screen size: ${columns}x${rows} (${terminalArea} cells)`)
-  console.log(`Renderer: ${useKittyRenderer ? 'Kitty' : 'OpenTUI'}`)
+  console.log('Renderer: Kitty')
   console.log(`Configuration: ${serializeConfig(config)}`)
 }
 
-function shutdown (runtime, resolve, columns, rows, terminalArea, useKittyRenderer, config) {
+function shutdown (runtime, resolve) {
   if (runtime.shuttingDown) {
     return
   }
@@ -42,8 +42,12 @@ function shutdown (runtime, resolve, columns, rows, terminalArea, useKittyRender
     runtime.engine = null
   }
 
-  writeSync(process.stdout.fd, '\x1b[<u\x1b[?1049l\x1b[?25h\x1b[2J\x1b[3J\x1b[H')
-  printDebugInfo(columns, rows, terminalArea, useKittyRenderer, config)
+  if (runtime.audio !== null) {
+    runtime.audio.destroy()
+    runtime.audio = null
+  }
+
+  writeSync(process.stdout.fd, '\x1b[?2026l\x1b[0m\x1b[?1049l\x1b[?25h\x1b[2J\x1b[3J\x1b[H')
   resolve()
 }
 
@@ -51,27 +55,11 @@ export async function main (context) {
   const rows = process.stdout.rows ?? 0
   const columns = process.stdout.columns ?? 0
   const terminalArea = rows * columns
-  const canUseKittyRenderer = KittyRenderer.isSupported()
-
-  let useKittyRenderer = process.env.USE_KITTY_RENDERER === 'true'
-
-  if (columns < 160 || rows < 100) {
-    if (!canUseKittyRenderer) {
-      console.error(`Your terminal size is currently ${columns} columns by ${rows} rows.`)
-      console.error(
-        'Destino requires a size of at least 160 columns by 100 rows or a terminal with Kitty support. Resize your terminal and try again.'
-      )
-    } else {
-      useKittyRenderer = true
-    }
-  }
-
   const { promise, resolve } = Promise.withResolvers()
   const config = await loadConfig()
 
-  printDebugInfo(columns, rows, terminalArea, useKittyRenderer, config)
-
   if (process.env.DEBUG === 'true') {
+    printDebugInfo(columns, rows, terminalArea, config)
     return
   }
 
@@ -79,24 +67,36 @@ export async function main (context) {
   const engine = new Engine()
   const runtime = {
     engine,
+    audio: null,
     input: new TerminalParser(config.keybindings),
-    renderer: useKittyRenderer ? new KittyRenderer(engine) : new OpenTUI(engine),
+    renderer: null,
     timer: null,
-    audioReleased: false,
     shuttingDown: false
   }
 
-  const boundShutdown = shutdown.bind(null, runtime, resolve, columns, rows, terminalArea, useKittyRenderer, config)
+  const boundShutdown = shutdown.bind(null, runtime, resolve)
   process.once('SIGINT', boundShutdown)
   process.once('SIGTERM', boundShutdown)
 
   // Setup modules
-  runtime.engine.initialize(config)
-  runtime.renderer.setupFrameBuffer()
-  runtime.input.on('quit', boundShutdown)
-  runtime.input.on('press', doomKey => runtime.engine.sendKey(doomKey, 1))
-  runtime.input.on('release', doomKey => runtime.engine.sendKey(doomKey, 0))
-  runtime.input.start()
+  try {
+    runtime.renderer = new Video(engine, config)
+    runtime.engine.initialize(config)
+    runtime.audio = new Audio()
+    runtime.renderer.setStatus(`${basename(config.wadPath || 'freedoom1.wad')} | Ctrl+C: Quit`)
+    runtime.renderer.setInfo(`${engine.getFrameWidth()}x${engine.getFrameHeight()} | Audio: SDL3 44.1 kHz stereo`)
+    runtime.renderer.setupFrameBuffer()
+    runtime.input.on('quit', boundShutdown)
+    runtime.input.on('press', doomKey => runtime.engine.sendKey(doomKey, 1))
+    runtime.input.on('release', doomKey => runtime.engine.sendKey(doomKey, 0))
+    await runtime.input.start()
+    await runtime.renderer.measureScreen()
+  } catch (error) {
+    boundShutdown()
+    process.off('SIGINT', boundShutdown)
+    process.off('SIGTERM', boundShutdown)
+    throw error
+  }
 
   // Execute the game, doom runs at 35Hz
   runtime.timer = setInterval(() => {
@@ -105,21 +105,20 @@ export async function main (context) {
     }
 
     runtime.engine.tick()
-
-    if (runtime.engine.quitRequested()) {
+    try {
+      runtime.audio.write(runtime.engine.renderAudio())
+      // Present the whole terminal even when Doom has not marked a new frame.
+      runtime.renderer.render()
+    } catch (error) {
+      console.error(`${error.code}: ${error.message}`)
+      process.exitCode = 1
       boundShutdown()
       return
     }
 
-    if (!runtime.engine.frameReady()) {
+    if (runtime.engine.quitRequested()) {
+      boundShutdown()
       return
-    }
-
-    runtime.renderer.render()
-
-    if (!runtime.audioReleased) {
-      runtime.audioReleased = true
-      runtime.engine.releaseAudio()
     }
 
     runtime.engine.clearFrameReady()
@@ -132,11 +131,5 @@ export async function main (context) {
 }
 
 if (import.meta.main) {
-  await initSEA()
-
-  try {
-    await main()
-  } finally {
-    await cleanupSEA()
-  }
+  await main()
 }

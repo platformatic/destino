@@ -2,13 +2,15 @@
   "main": "./dist/index.js",
   "mainFormat": "module",
   "output": "./dist/destino",
-  "execArgv": ["--no-warnings", "--experimental-ffi"],
-  "useCodeCache": true,
+  "execArgv": ["--no-warnings"],
+  "useCodeCache": false,
+  "useVfs": true,
   "assets": {
-    "destino.so": "./dist/destino.so",
-    "opentui.so": "./node_modules/@opentui/core-linux-x64/libopentui.so",
-    "wads/freedoom1.wad": "dist/wads/freedoom1.wad",
-    "wads/freedoom2.wad": "dist/wads/freedoom2.wad",
-    "sf2s/GeneralUser.sf2": "./dist/sf2s/GeneralUser.sf2"
+    "config.schema.json": "src/config.schema.json",
+    "destino.so": "./deps/engine/destino.so",
+    "libSDL3.so": "./deps/audio/lib/libSDL3.so",
+    "wads/freedoom1.wad": "deps/freedoom/freedoom1.wad",
+    "wads/freedoom2.wad": "deps/freedoom/freedoom2.wad",
+    "midi/GeneralUser-GS.sf2": "deps/audio/font/GeneralUser-GS.sf2"
   }
 }
