@@ -18,7 +18,7 @@ on:
 jobs:
   bump-version:
     if: github.ref_name == 'main'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     environment: main
     permissions:
       contents: write
@@ -43,7 +43,8 @@ jobs:
           key: node-modules-${{ hashFiles('package.json') }}
 
       - name: Install dependencies
-        run: pnpm install
+        # Version bumping needs JavaScript dependencies only, not the native prepare hook.
+        run: pnpm install --ignore-scripts
 
       - name: Bump Version
         run: node src/scripts/bump-version.js "${{ inputs.version }}" "${{ github.actor }}"
@@ -77,10 +78,10 @@ jobs:
         include:
           - platform: linux
             arch: x64
-            os: ubuntu-latest
+            os: ubuntu-26.04
           - platform: linux
             arch: arm64
-            os: ubuntu-24.04-arm
+            os: ubuntu-26.04-arm
           - platform: macos
             arch: x64
             os: macos-15-intel
@@ -109,11 +110,18 @@ jobs:
           path: ~/.pnpm-store
           key: node-modules-${{ matrix.platform }}-${{ matrix.arch }}-${{ hashFiles('package.json') }}
 
+      - name: Install Linux prerequisites
+        if: matrix.platform == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang pkg-config libsdl3-dev tar unzip
+
+      - name: Install macOS prerequisites
+        if: matrix.platform == 'macos'
+        run: brew install pkg-config sdl3 unzip
+
       - name: Install dependencies
         run: pnpm install
-
-      - name: Install native dependencies
-        run: pnpm run dependencies
 
       - name: Build native library
         run: pnpm run build
@@ -147,7 +155,7 @@ jobs:
   publish-release:
     if: github.ref_name == 'main'
     needs: release
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     environment: main
     permissions:
       contents: write
