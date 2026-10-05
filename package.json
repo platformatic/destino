@@ -1,6 +1,6 @@
 {
   "name": "destino",
-  "version": "0.2.5",
+  "version": "0.3.0",
   "description": "Doom terminal demo based on Node.js, doomgeneric and OpenTUI's Kitty Graphics renderer",
   "homepage": "https://github.com/platformatic/destino",
   "author": "Platformatic Inc. <oss@platformatic.dev> (https://platformatic.dev)",
