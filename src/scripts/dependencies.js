@@ -12,6 +12,10 @@ const exec = promisify(execFile)
 const deps = resolve(import.meta.dirname, '../../deps')
 const targets = ['darwin-arm64', 'darwin-x64', 'linux-arm64', 'linux-x64']
 const currentTarget = `${process.platform}-${process.arch}`
+// Pin public downloads to keep builds reproducible without GitHub API requests or tokens.
+const doomGenericCommit = 'dcb7a8dbc7a16ce3dda29382ac9aae9d77d21284'
+const freedoomVersion = '0.13.0'
+const generalUserCommit = '684543d5e5efaef08d02be50dcda8d552478fa60'
 const tinySoundFontCommit = '853a0a171759f1ddba0de1442133a75912bbeffa'
 
 function step (message) {
@@ -113,9 +117,7 @@ async function install (name, action) {
 
 async function installDoomGeneric () {
   await install('engine', async directory => {
-    const repository = await metadata('https://api.github.com/repos/ozkl/doomgeneric')
-    const commit = await metadata(`https://api.github.com/repos/ozkl/doomgeneric/commits/${repository.default_branch}`)
-    const url = `https://github.com/ozkl/doomgeneric/archive/${commit.sha}.tar.gz`
+    const url = `https://codeload.github.com/ozkl/doomgeneric/tar.gz/${doomGenericCommit}`
     const extracted = resolve(directory, 'archive')
     const source = resolve(extracted, 'doomgeneric')
     const destination = resolve(directory, 'src')
@@ -133,13 +135,9 @@ async function installDoomGeneric () {
 
 async function installFreedoom () {
   await install('freedoom', async directory => {
-    const release = await metadata('https://api.github.com/repos/freedoom/freedoom/releases/latest')
-    const asset = release.assets.find(asset => /^freedoom-[\d.]+\.zip$/.test(asset.name))
-    if (!asset) {
-      throw new DependencyError('Latest Freedoom release has no game archive')
-    }
-    await archive(directory, asset.browser_download_url, true)
-    const extracted = resolve(directory, asset.name.slice(0, -4))
+    const name = `freedoom-${freedoomVersion}`
+    await archive(directory, `https://github.com/freedoom/freedoom/releases/download/v${freedoomVersion}/${name}.zip`, true)
+    const extracted = resolve(directory, name)
     for (const entry of await readdir(extracted, { withFileTypes: true })) {
       if (entry.isFile() && entry.name.endsWith('.wad')) {
         await cp(resolve(extracted, entry.name), resolve(directory, entry.name))
@@ -171,10 +169,8 @@ async function installAudio (libraries) {
         resolve(source, filename)
       )
     }
-    const repository = await metadata('https://api.github.com/repos/mrbumpy409/GeneralUser-GS')
-    const commit = await metadata(`https://api.github.com/repos/mrbumpy409/GeneralUser-GS/commits/${repository.default_branch}`)
     await download(
-      `https://raw.githubusercontent.com/mrbumpy409/GeneralUser-GS/${commit.sha}/GeneralUser-GS.sf2`,
+      `https://raw.githubusercontent.com/mrbumpy409/GeneralUser-GS/${generalUserCommit}/GeneralUser-GS.sf2`,
       resolve(font, 'GeneralUser-GS.sf2')
     )
   })
