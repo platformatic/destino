@@ -90,8 +90,8 @@ and creates the following layout:
 ```text
 deps/
 ├── engine/
-│   └── src/      # Only .c and .h files from the latest default-branch commit
-├── freedoom/     # Only .wad files from the latest stable release
+│   └── src/      # Only .c and .h files from the pinned DoomGeneric commit
+├── freedoom/     # Only .wad files from Freedoom 0.13.0
 ├── audio/
 │   ├── lib/      # Only libSDL3.dylib or libSDL3.so
 │   ├── src/      # Unmodified TinySoundFont and TinyMidiLoader headers
@@ -109,6 +109,9 @@ it does not produce a standalone binary.
 OpenTUI is downloaded from npm and verified against its SHA-512 integrity value.
 By default it matches the host. `pnpm run prepare linux-arm64` selects another
 supported target for OpenTUI only; SDL still comes from the current host.
+
+GitHub-hosted dependencies use public download URLs with pinned commits or releases
+defined in `src/scripts/dependencies.js`; no GitHub API requests or tokens are required.
 
 Rerunning refreshes each managed component after it has been prepared
 successfully. Local changes inside those component directories are replaced;
