@@ -102,7 +102,8 @@ stream or starting the game. Set `audio` to the exact device name, not SDL's tem
 }
 ```
 
-Omit `audio` or set it to `null` for the system default. An unavailable device
+Omit `audio` or set it to `null` for the system default. Set `audio` to `false`
+to disable music and sound effects without initializing SDL or loading the soundfont. An unavailable device
 raises `DESTINO_AUDIO`; invalid audio configuration raises `DESTINO_CONFIG`.
 Bootstrap omits unset optional settings rather than writing `null` values.
 
@@ -118,7 +119,13 @@ The game fits the available terminal area while preserving its aspect ratio and
 adjusts when the terminal is resized. A terminal without the required graphics or
 keyboard support reports an error; there is no fallback renderer.
 
-The CMUX workaround `fixVideoIndex` is enabled by default at the root of `destino.json`:
+`fixVideoIndex` controls image stacking, not resolution or aspect ratio. It works
+around a CMUX rendering issue where the game image can cover terminal text and
+overlays. When enabled, Destino sets Kitty Graphics image placements to z-index
+`-1`: above terminal cell backgrounds but below text, keeping overlays visible.
+Only placement headers are changed; image data is unchanged.
+
+The workaround is enabled by default. Configure it at the root of `destino.json`:
 
 ```json
 {
@@ -126,7 +133,9 @@ The CMUX workaround `fixVideoIndex` is enabled by default at the root of `destin
 }
 ```
 
-Set it to `false` to disable the workaround.
+Leave it enabled when using CMUX. Set it to `false` to disable the workaround and
+leave OpenTUI's image stacking unchanged, for example if your terminal renders
+correctly without the fix or the workaround causes visual issues.
 
 Set `sf2Path` to use a custom SF2 soundfont (relative to the current working
 directory or absolute). An empty value selects the bundled

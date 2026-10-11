@@ -65,8 +65,12 @@ export function loadGameAssets (config) {
     startupProgress('Reading WAD data...')
     const wad = packaged ? readFileSync(wadPath) : null
 
-    startupProgress('Reading SF2 soundfont...')
-    const font = readFileSync(fontPath)
+    // Disabled audio must not require a soundfont on disk.
+    let font = null
+    if (config.audio !== false) {
+      startupProgress('Reading SF2 soundfont...')
+      font = readFileSync(fontPath)
+    }
 
     // Packaged engine files stay in memory except saves, scoped by the selected IWAD.
     const saveDirectory = packaged ? resolve(process.cwd(), 'saves', basename(wadPath)) : null

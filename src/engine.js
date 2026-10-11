@@ -76,10 +76,15 @@ export class Engine {
       throw new LoaderError('Cannot initialize in-memory game files')
     }
 
-    startupProgress('Initializing the soundfont synthesizer...')
-    // SAFETY: The synthesizer copies the borrowed font buffer during this synchronous call.
-    if (assets.font.length > 0x7fffffff || !this.#loadSoundfont(assets.font, assets.font.length)) {
-      throw new AudioError(`Cannot load SF2 soundfont: ${assets.fontPath}`)
+    // Disable Doom's audio backends as well as playback when audio is explicitly off.
+    if (config.audio === false) {
+      args.push('-nosound')
+    } else {
+      startupProgress('Initializing the soundfont synthesizer...')
+      // SAFETY: The synthesizer copies the borrowed font buffer during this synchronous call.
+      if (assets.font.length > 0x7fffffff || !this.#loadSoundfont(assets.font, assets.font.length)) {
+        throw new AudioError(`Cannot load SF2 soundfont: ${assets.fontPath}`)
+      }
     }
 
     if (config.demo) {

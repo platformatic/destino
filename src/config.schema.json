@@ -15,9 +15,12 @@
       "description": "Optional SF2 soundfont path. Defaults to the bundled GeneralUser GS font."
     },
     "audio": {
-      "type": ["string", "null"],
-      "minLength": 1,
-      "description": "Exact playback device name from --audio, or null for the system default. An unavailable device raises DESTINO_AUDIO."
+      "anyOf": [
+        { "type": "string", "minLength": 1 },
+        { "type": "null" },
+        { "const": false }
+      ],
+      "description": "Exact playback device name from --audio, null for the system default, or false to disable music and sound effects. An unavailable device raises DESTINO_AUDIO."
     },
     "showStatus": {
       "type": "boolean",

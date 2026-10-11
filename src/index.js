@@ -108,10 +108,13 @@ export async function main (args = process.argv.slice(2)) {
   try {
     runtime.renderer = new Video(engine, config)
     runtime.engine.initialize(config)
-    runtime.audio = new Audio(config.audio)
+    if (config.audio !== false) {
+      runtime.audio = new Audio(config.audio)
+    }
 
     runtime.renderer.setStatus(`${basename(config.wadPath || 'freedoom1.wad')} | Ctrl+C: Quit`)
-    runtime.renderer.setInfo(`${engine.getFrameWidth()}x${engine.getFrameHeight()} | Audio: SDL3 44.1 kHz stereo`)
+    const audioInfo = runtime.audio === null ? 'Disabled' : 'SDL3 44.1 kHz stereo'
+    runtime.renderer.setInfo(`${engine.getFrameWidth()}x${engine.getFrameHeight()} | Audio: ${audioInfo}`)
 
     startupProgress('Initializing terminal graphics and keyboard...')
     runtime.renderer.setupFrameBuffer()
@@ -136,7 +139,10 @@ export async function main (args = process.argv.slice(2)) {
     runtime.engine.tick()
 
     try {
-      runtime.audio.write(runtime.engine.renderAudio())
+      if (runtime.audio !== null) {
+        runtime.audio.write(runtime.engine.renderAudio())
+      }
+
       // Present the whole terminal even when Doom has not marked a new frame.
       runtime.renderer.render()
     } catch (error) {

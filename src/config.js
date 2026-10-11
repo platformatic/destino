@@ -53,8 +53,8 @@ async function createConfig (configPath) {
 
   const { wadPath, sf2Path, audio, fixVideoIndex, fixIndexing, showStatus, keybindings, ...rest } = parsed
 
-  if (audio !== undefined && audio !== null && (typeof audio !== 'string' || audio.length === 0)) {
-    throw new ConfigError('audio must be a non-empty device name or null')
+  if (audio !== undefined && audio !== null && audio !== false && (typeof audio !== 'string' || audio.length === 0)) {
+    throw new ConfigError('audio must be a non-empty device name, null or false')
   }
 
   // Fill omitted settings without discarding custom fields or partial keybinding overrides.
