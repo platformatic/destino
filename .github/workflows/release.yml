@@ -74,12 +74,13 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # Build against glibc 2.39 to avoid Ubuntu 26.04's sqrtf@GLIBC_2.43 requirement.
           - platform: linux
             arch: x64
-            os: ubuntu-26.04
+            os: ubuntu-24.04
           - platform: linux
             arch: arm64
-            os: ubuntu-26.04-arm
+            os: ubuntu-24.04-arm
           - platform: macos
             arch: x64
             os: macos-15-intel
@@ -111,8 +112,10 @@ jobs:
       - name: Install Linux prerequisites
         if: matrix.platform == 'linux'
         run: |
+          # Noble has no SDL3 package; this third-party PPA supplies builds for both amd64 and arm64.
+          sudo add-apt-repository --yes --no-update ppa:johngrimmreaper/24.04
           sudo apt-get update
-          sudo apt-get install -y clang pkg-config libsdl3-dev tar unzip
+          sudo apt-get install -y clang pkg-config libsdl3-dev=3.4.10+ds-1~ppa2~noble1 tar unzip
 
       - name: Install macOS prerequisites
         if: matrix.platform == 'macos'

@@ -1,3 +1,11 @@
+SDL3 Linux release provenance
+Linux release builds use SDL 3.4.10 from the Ubuntu 24.04 PPA package
+libsdl3 3.4.10+ds-1~ppa2~noble1.
+Package source: https://launchpad.net/~johngrimmreaper/+archive/ubuntu/24.04/+sourcepub/18712023
+Upstream revision: https://github.com/libsdl-org/SDL/tree/release-3.4.10
+The SDL license and bundled third-party notices cited below were also reviewed
+at release-3.4.10 and are unchanged from the release-3.4.16 snapshots.
+
 SDL3 X11 keysym conversion
 Source: https://raw.githubusercontent.com/libsdl-org/SDL/release-3.4.16/src/events/imKStoUCS.c
 
@@ -6292,4 +6300,3 @@ Source: https://raw.githubusercontent.com/ozkl/doomgeneric/dcb7a8dbc7a16ce3dda29
 // but WITHOUT ANY WARRANTY; without even the implied warranty of
 // MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 // GNU General Public License for more details.
-
