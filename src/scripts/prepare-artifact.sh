@@ -1,5 +1,4 @@
 #!/bin/bash
-# SPDX-License-Identifier: MIT
 
 set -euo pipefail
 
@@ -20,8 +19,12 @@ if [[ ! -f "$source" ]]; then
   exit 1
 fi
 
+# Rebuild only this platform/architecture's staging directory from the completed executable.
 rm -rf "$artifact_dir"
 mkdir -p "$artifact_dir"
 cp "$source" "$target"
 
 chmod a+x "$target"
+
+# Copy repository license texts verbatim alongside the executable.
+cp LICENSE THIRD_PARTY_NOTICES "$artifact_dir/"

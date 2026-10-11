@@ -1,5 +1,3 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
-
 #define _GNU_SOURCE
 #include <errno.h>
 #include <limits.h>
@@ -40,8 +38,10 @@ static int SavePath(const char *name, char *path) {
   if (save_directory[0] == '\0') {
     return 0;
   }
+
   const char *base = strrchr(name, '/');
   base = base == NULL ? name : base + 1;
+
   // Recovery saves use Doom's temporary directory. Map them into the same
   // persistent save directory, never the host's temporary directory.
   int recovery = strcmp(base, "recovery.dsg") == 0;
@@ -50,25 +50,30 @@ static int SavePath(const char *name, char *path) {
         name + strlen(savegamedir) != base) {
       return 0;
     }
+
     if (strcmp(base, "temp.dsg") != 0) {
       if (strncmp(base, "doomsav", 7) != 0) {
         return 0;
       }
+
       const char *slot = base + 7;
       const char *end = slot;
       while (*end >= '0' && *end <= '9') {
         end++;
       }
+
       if (end == slot || strcmp(end, ".dsg") != 0) {
         return 0;
       }
     }
   }
+
   int length = snprintf(path, PATH_MAX, "%s/%s", save_directory, base);
   if (length < 0 || length >= PATH_MAX) {
     errno = ENAMETOOLONG;
     return -1;
   }
+
   return 1;
 }
 
@@ -78,6 +83,7 @@ static MemoryFile *FindFile(const char *name) {
       return file;
     }
   }
+
   return NULL;
 }
 
@@ -86,11 +92,14 @@ static MemoryFile *CreateFile(const char *name) {
   if (file == NULL) {
     return NULL;
   }
+
   file->name = strdup(name);
   if (file->name == NULL) {
     free(file);
     return NULL;
   }
+
+  // Publish only a fully allocated entry in the process-wide file registry.
   file->next = files;
   files = file;
   return file;
@@ -102,27 +111,34 @@ static ssize_t ReadMemory(void *cookie, char *buffer, size_t size) {
   if (size > available) {
     size = available;
   }
+
   if (size > 0) {
     memcpy(buffer, stream->file->data + stream->position, size);
     stream->position += size;
   }
+
   return (ssize_t) size;
 }
 
 static ssize_t WriteMemory(void *cookie, const char *buffer, size_t size) {
   MemoryStream *stream = cookie;
   MemoryFile *file = stream->file;
+
   if (!stream->writable) {
     errno = EBADF;
     return -1;
   }
+
   if (stream->append) {
     stream->position = file->size;
   }
+
   if (size > SIZE_MAX - stream->position) {
     errno = EFBIG;
     return -1;
   }
+
+  // Zero-fill growth so writes after a seek have the same gap semantics as regular files.
   size_t end = stream->position + size;
   if (end > file->size) {
     unsigned char *data = realloc(file->data, end);
@@ -134,6 +150,7 @@ static ssize_t WriteMemory(void *cookie, const char *buffer, size_t size) {
     file->data = data;
     file->size = end;
   }
+
   if (size > 0) {
     memcpy(file->data + stream->position, buffer, size);
   }
@@ -143,16 +160,20 @@ static ssize_t WriteMemory(void *cookie, const char *buffer, size_t size) {
 
 static int64_t SeekMemory(MemoryStream *stream, int64_t offset, int whence) {
   int64_t base;
+
   switch (whence) {
     case SEEK_SET: base = 0; break;
     case SEEK_CUR: base = (int64_t) stream->position; break;
     case SEEK_END: base = (int64_t) stream->file->size; break;
     default: errno = EINVAL; return -1;
   }
+
+  // Reject negative positions and signed overflow before converting back to size_t.
   if (offset < -base || (offset > 0 && base > INT64_MAX - offset)) {
     errno = EINVAL;
     return -1;
   }
+
   stream->position = (size_t) (base + offset);
   return (int64_t) stream->position;
 }
@@ -162,9 +183,11 @@ static int CloseMemory(void *cookie) {
   while (*link != NULL && *link != cookie) {
     link = &(*link)->next;
   }
+
   if (*link != NULL) {
     *link = (*link)->next;
   }
+
   free(cookie);
   return 0;
 }
@@ -174,9 +197,11 @@ static int CloseMemory(void *cookie) {
 static int ReadCookie(void *cookie, char *buffer, int size) {
   return (int) ReadMemory(cookie, buffer, (size_t) size);
 }
+
 static int WriteCookie(void *cookie, const char *buffer, int size) {
   return (int) WriteMemory(cookie, buffer, (size_t) size);
 }
+
 static fpos_t SeekCookie(void *cookie, fpos_t offset, int whence) {
   return (fpos_t) SeekMemory(cookie, offset, whence);
 }
@@ -186,6 +211,7 @@ static int SeekCookie(void *cookie, off64_t *offset, int whence) {
   if (position < 0) {
     return -1;
   }
+
   *offset = position;
   return 0;
 }
@@ -195,35 +221,44 @@ FILE *destino_fopen(const char *name, const char *mode) {
   if (!mounted) {
     return fopen(name, mode);
   }
+
+  // Only explicitly recognized saves bypass the in-memory filesystem in packaged mode.
   char path[PATH_MAX];
   int save = SavePath(name, path);
   if (save != 0) {
     return save < 0 ? NULL : fopen(path, mode);
   }
+
   MemoryFile *file = FindFile(name);
   if (file == NULL && mode[0] != 'r') {
     file = CreateFile(name);
   }
+
   if (file == NULL) {
     errno = mode[0] == 'r' ? ENOENT : ENOMEM;
     return NULL;
   }
+
   MemoryStream *stream = calloc(1, sizeof(*stream));
   if (stream == NULL) {
     return NULL;
   }
+
   stream->file = file;
   stream->writable = mode[0] != 'r' || strchr(mode, '+') != NULL;
   stream->append = mode[0] == 'a';
   if (mode[0] == 'w') {
     file->size = 0;
   }
+
+  // Wrap the same storage in the platform's libc stream ABI for upstream stdio calls.
 #ifdef __APPLE__
   FILE *result = funopen(stream, ReadCookie, stream->writable ? WriteCookie : NULL, SeekCookie, CloseMemory);
 #else
   cookie_io_functions_t callbacks = { ReadMemory, stream->writable ? WriteMemory : NULL, SeekCookie, CloseMemory };
   FILE *result = fopencookie(stream, mode, callbacks);
 #endif
+
   if (result == NULL) {
     free(stream);
   } else {
@@ -231,6 +266,7 @@ FILE *destino_fopen(const char *name, const char *mode) {
     stream->next = streams;
     streams = stream;
   }
+
   return result;
 }
 
@@ -238,16 +274,19 @@ int destino_remove(const char *name) {
   if (!mounted) {
     return remove(name);
   }
+
   char path[PATH_MAX];
   int save = SavePath(name, path);
   if (save != 0) {
     return save < 0 ? -1 : remove(path);
   }
+
   MemoryFile *file = FindFile(name);
   if (file == NULL) {
     errno = ENOENT;
     return -1;
   }
+
   // Keep storage alive for streams already holding the unlinked file.
   free(file->name);
   file->name = NULL;
@@ -258,6 +297,8 @@ int destino_rename(const char *old, const char *name) {
   if (!mounted) {
     return rename(old, name);
   }
+
+  // A rename cannot cross between persistent saves and process-memory files.
   char old_path[PATH_MAX];
   char new_path[PATH_MAX];
   int old_save = SavePath(old, old_path);
@@ -265,6 +306,7 @@ int destino_rename(const char *old, const char *name) {
   if (old_save < 0 || new_save < 0) {
     return -1;
   }
+
   if (old_save || new_save) {
     if (!old_save || !new_save) {
       errno = EXDEV;
@@ -272,6 +314,7 @@ int destino_rename(const char *old, const char *name) {
     }
     return rename(old_path, new_path);
   }
+
   MemoryFile *file = FindFile(old);
   if (file == NULL) {
     errno = ENOENT;
@@ -280,6 +323,8 @@ int destino_rename(const char *old, const char *name) {
   if (strcmp(old, name) == 0) {
     return 0;
   }
+
+  // Allocate the replacement name before unlinking any existing destination entry.
   char *copy = strdup(name);
   if (copy == NULL) {
     return -1;
@@ -287,6 +332,7 @@ int destino_rename(const char *old, const char *name) {
   if (FindFile(name) != NULL) {
     destino_remove(name);
   }
+
   free(file->name);
   file->name = copy;
   return 0;
@@ -306,16 +352,21 @@ int files_mount(const char *name, const void *data, size_t size, const char *sav
     errno = EINVAL;
     return 0;
   }
+
+  // Copy the borrowed WAD into native-owned storage before activating the memory mount.
   MemoryFile *file = CreateFile(name);
   if (file == NULL) {
     return 0;
   }
+
   file->data = malloc(size);
   if (file->data == NULL) {
     return 0;
   }
+
   memcpy(file->data, data, size);
   file->size = size;
+
   mounted = 1;
   strcpy(save_directory, save_path);
   return 1;
@@ -326,6 +377,7 @@ void files_shutdown(void) {
   while (streams != NULL) {
     fclose(streams->handle);
   }
+
   while (files != NULL) {
     MemoryFile *next = files->next;
     free(files->name);
@@ -333,6 +385,7 @@ void files_shutdown(void) {
     free(files);
     files = next;
   }
+
   mounted = 0;
   save_directory[0] = '\0';
 }

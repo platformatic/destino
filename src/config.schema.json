@@ -1,6 +1,5 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$comment": "SPDX-License-Identifier: MIT",
   "type": "object",
   "properties": {
     "$schema": {
@@ -14,6 +13,11 @@
     "sf2Path": {
       "type": "string",
       "description": "Optional SF2 soundfont path. Defaults to the bundled GeneralUser GS font."
+    },
+    "audio": {
+      "type": ["string", "null"],
+      "minLength": 1,
+      "description": "Exact playback device name from --audio, or null for the system default. An unavailable device raises DESTINO_AUDIO."
     },
     "showStatus": {
       "type": "boolean",

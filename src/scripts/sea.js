@@ -1,5 +1,4 @@
 #!/usr/bin/env node
-// SPDX-License-Identifier: MIT
 
 import { spawn } from 'node:child_process'
 import { chmod, mkdir, rm, writeFile } from 'node:fs/promises'
@@ -63,6 +62,7 @@ async function getNodeBinary ({ platform, arch }) {
     return process.execPath
   }
 
+  // Custom Node distributions encode the version in the base URL's final path segment.
   const nodeBaseUrl = new URL(baseUrl)
   const pathParts = nodeBaseUrl.pathname.split('/').filter(Boolean)
   const version = pathParts.at(-1)
@@ -75,6 +75,7 @@ async function getNodeBinary ({ platform, arch }) {
   const archiveBase = join('tmp', `node-${platform}-${arch}`)
   const archiveName = `node-${version}-${platform}-${arch}`
 
+  // Replace only the target-specific staging directory, not other packaging intermediates.
   await rm(nodeDirectory, { force: true, recursive: true })
   await mkdir(nodeDirectory, { recursive: true })
 
@@ -92,12 +93,14 @@ async function main () {
   const config = getPlatformConfig()
   const arch = getArch()
 
+  // Bundle JavaScript before generating the asset manifest consumed by Node's SEA builder.
   await run('rolldown', ['-c', 'rolldown.config.js'], { shell: true })
   await mkdir('tmp', { recursive: true })
 
   const nodeBinary = await getNodeBinary({ platform: config.platform, arch })
   const sdlPath = resolve(import.meta.dirname, `../../deps/audio/lib/${config.sdlAsset}`)
 
+  // VFS-mounted native libraries and game assets avoid application-owned extraction at startup.
   await writeFile(
     'tmp/sea.json',
     JSON.stringify(
@@ -124,6 +127,7 @@ async function main () {
   )
 
   await run(nodeBinary, ['--build-sea', 'tmp/sea.json'])
+
   if (process.platform === 'darwin') {
     // SEA changes the executable image; arm64 macOS requires a new signature.
     // Release notarization can replace this local ad-hoc signature later.

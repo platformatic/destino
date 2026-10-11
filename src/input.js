@@ -1,5 +1,3 @@
-// SPDX-License-Identifier: MIT
-
 import { EventEmitter } from 'node:events'
 import { InputError } from './errors.js'
 
@@ -32,9 +30,13 @@ export class TerminalParser extends EventEmitter {
   #startup
   #startupTimer
   #wasRaw
+  #wasFlowing
+  #capture
 
-  constructor (keybindings) {
+  constructor (keybindings, { capture = false, stdin = process.stdin, stdout = process.stdout } = {}) {
     super()
+
+    // One terminal chord may serve several actions, including shared game/menu bindings.
     this.#keybindings = new Map()
 
     for (const [action, keys] of Object.entries(keybindings ?? {})) {
@@ -45,8 +47,9 @@ export class TerminalParser extends EventEmitter {
       }
     }
 
-    this.#stdin = process.stdin
-    this.#stdout = process.stdout
+    this.#stdin = stdin
+    this.#stdout = stdout
+    this.#capture = capture
     this.#enabled = false
     this.#onData = this.#handleData.bind(this)
     this.#inputBuffer = Buffer.alloc(0)
@@ -65,18 +68,22 @@ export class TerminalParser extends EventEmitter {
 
     this.#enabled = true
     this.#wasRaw = this.#stdin.isRaw
+    this.#wasFlowing = this.#stdin.readableFlowing
     this.#startup = Promise.withResolvers()
     const startup = this.#startup
+
     // Query the enabled flags. Device-attribute replies may also come from
     // OpenTUI's startup queries, so only the flags response completes detection.
     // https://sw.kovidgoyal.net/kitty/keyboard-protocol/#detection-of-support-for-this-protocol
     this.#startupTimer = setTimeout(() => {
       startup.reject(new InputError('Terminal did not confirm Kitty keyboard protocol support within 1500ms'))
     }, 1500)
+
     try {
       this.#stdin.setRawMode(true)
       this.#stdin.resume()
       this.#stdin.on('data', this.#onData)
+
       // 1: disambiguation, 2: press/repeat/release, 8: encode every key.
       this.#stdout.write('\x1b[>11u\x1b[?u\x1b[c')
       await startup.promise
@@ -97,10 +104,14 @@ export class TerminalParser extends EventEmitter {
     this.#enabled = false
     clearTimeout(this.#startupTimer)
     this.#startup?.reject(new InputError('Kitty keyboard initialization was interrupted'))
+
+    // Pop only our Kitty mode and restore the caller's stdin state.
     this.#stdout.write('\x1b[<u')
     this.#stdin.off('data', this.#onData)
     this.#stdin.setRawMode(this.#wasRaw ?? false)
-    this.#stdin.pause()
+    if (!this.#wasFlowing) {
+      this.#stdin.pause()
+    }
 
     if (this.#flushTimer !== null) {
       clearTimeout(this.#flushTimer)
@@ -117,6 +128,7 @@ export class TerminalParser extends EventEmitter {
   #handleData (buf) {
     this.#inputBuffer = Buffer.concat([this.#inputBuffer, buf])
 
+    // Bound retained fragments so an incomplete or malformed stream cannot grow indefinitely.
     if (this.#inputBuffer.length > this.#maxBufferLength) {
       this.#inputBuffer = this.#inputBuffer.subarray(-this.#maxBufferLength)
     }
@@ -144,7 +156,7 @@ export class TerminalParser extends EventEmitter {
       }
 
       this.#inputBuffer = this.#inputBuffer.subarray(result.length)
-      if (result.event !== null && this.#startup === null) {
+      if (result.event !== null && (this.#startup === null || this.#capture)) {
         this.#emitParsedEvent(result.event)
       }
     }
@@ -170,6 +182,8 @@ export class TerminalParser extends EventEmitter {
   }
 
   #emitParsedEvent (ev) {
+    // Gameplay treats repeats as presses, but capture should report only the initial chord.
+    const repeat = ev.event === 'repeat'
     if (ev.event === 'repeat') {
       ev = { ...ev, event: 'press' }
     }
@@ -178,11 +192,16 @@ export class TerminalParser extends EventEmitter {
       return
     }
 
-    if (ev.event === 'press' && ev.key === 'c' && ev.ctrl) {
+    if (ev.event === 'press' && ev.ctrl && (ev.key === 'c' || (this.#capture && ev.key === 'd'))) {
       this.emit('quit')
       return
     }
 
+    if (this.#startup !== null) {
+      return
+    }
+
+    // Build chords in a stable modifier order matching persisted bindings.
     const parts = []
 
     if (ev.ctrl) {
@@ -201,9 +220,18 @@ export class TerminalParser extends EventEmitter {
       parts.push('meta')
     }
 
+    if (ev.hyper) {
+      parts.push('hyper')
+    }
+
     parts.push(ev.key)
 
     const actions = this.#keybindings.get(parts.join('+')) ?? []
+    if (this.#capture && ev.event === 'press' && !repeat) {
+      this.emit('key', { key: ev.key, chord: parts.join('+'), actions })
+    }
+
+    // Shared actions can resolve to the same Doom key; emit each native transition only once.
     const emitted = new Set()
 
     for (const action of actions) {
@@ -219,6 +247,15 @@ export class TerminalParser extends EventEmitter {
   #parseNext (raw) {
     if (raw.length === 0) {
       return { status: 'incomplete' }
+    }
+
+    // Cancellation must also work before the terminal switches to Kitty encoding.
+    if (this.#capture && (raw[0] === 3 || raw[0] === 4)) {
+      return {
+        status: 'complete',
+        length: 1,
+        event: { event: 'press', key: raw[0] === 3 ? 'c' : 'd', ctrl: true }
+      }
     }
 
     if (raw[0] !== 0x1b) {
@@ -243,6 +280,7 @@ export class TerminalParser extends EventEmitter {
       return event === null ? { status: 'invalid' } : { status: 'complete', length: 3, event }
     }
 
+    // CSI final bytes delimit complete sequences; retain only valid unfinished parameter bytes.
     const terminatorIndex = raw.findIndex((byte, index) => {
       return index >= 2 && byte >= 0x40 && byte <= 0x7e
     })
@@ -275,10 +313,12 @@ export class TerminalParser extends EventEmitter {
       if ((Number(flags[1]) & 11) === 11) {
         this.#startup?.resolve()
       }
+
       // OpenTUI may have queried the old flags before we enabled ours. Ignore
       // that stale reply and let the startup deadline reject unsupported modes.
       return null
     }
+
     // eslint-disable-next-line no-control-regex
     if (/^\x1b\[\?[\d;]*c$/.test(s)) {
       return null
@@ -316,12 +356,12 @@ export class TerminalParser extends EventEmitter {
       }
     }
 
-    // Kitty retains these CSI encodings for cursor/navigation keys.
+    // Kitty retains these CSI encodings for cursor/navigation keys and F1-F4.
     // ESC [ A
     // ESC [ 1 ; modifiers A
     // ESC [ 1 ; modifiers : event A
     // eslint-disable-next-line no-control-regex
-    m = /^\x1b\[(?:1(?:;(\d+)(?::([123]))?)?)?([ABCDHF])$/.exec(s)
+    m = /^\x1b\[(?:1(?:;(\d+)(?::([123]))?)?)?([ABCDHFPQRS])$/.exec(s)
 
     if (m) {
       const keys = {
@@ -330,7 +370,11 @@ export class TerminalParser extends EventEmitter {
         C: 'right',
         D: 'left',
         H: 'home',
-        F: 'end'
+        F: 'end',
+        P: 'f1',
+        Q: 'f2',
+        R: 'f3',
+        S: 'f4'
       }
 
       let event
@@ -355,13 +399,18 @@ export class TerminalParser extends EventEmitter {
       }
     }
 
-    // Insert/Delete/Page keys use Kitty's tilde form, including event types.
+    // Navigation keys and function keys also use Kitty's tilde form, including event types.
     // eslint-disable-next-line no-control-regex
-    m = /^\x1b\[(2|3|5|6|7|8)(?:;(\d+)(?::([123]))?)?~$/.exec(s)
+    m = /^\x1b\[(2|3|5|6|7|8|11|12|13|14|15|17|18|19|20|21|23|24)(?:;(\d+)(?::([123]))?)?~$/.exec(s)
     if (m) {
-      const keys = { 2: 'insert', 3: 'delete', 5: 'pageup', 6: 'pagedown', 7: 'home', 8: 'end' }
+      const keys = {
+        2: 'insert', 3: 'delete', 5: 'pageup', 6: 'pagedown', 7: 'home', 8: 'end',
+        11: 'f1', 12: 'f2', 13: 'f3', 14: 'f4', 15: 'f5', 17: 'f6',
+        18: 'f7', 19: 'f8', 20: 'f9', 21: 'f10', 23: 'f11', 24: 'f12'
+      }
+
       return {
-        event: m[3] === '3' ? 'release' : 'press',
+        event: m[3] === '3' ? 'release' : m[3] === '2' ? 'repeat' : 'press',
         key: keys[m[1]],
         ...this.#parseModifiers(m[2] ?? 1),
         raw
@@ -372,6 +421,28 @@ export class TerminalParser extends EventEmitter {
   }
 
   #codepointToKey (cp) {
+    // Kitty's private-use functional key range precedes ordinary Unicode handling.
+    if (cp >= 57344 && cp <= 57363) {
+      return [
+        'escape', 'enter', 'tab', 'backspace', 'insert', 'delete', 'left', 'right', 'up', 'down',
+        'pageup', 'pagedown', 'home', 'end', 'capslock', 'scrolllock', 'numlock', 'printscreen', 'pause', 'menu'
+      ][cp - 57344]
+    }
+
+    if (cp >= 57364 && cp <= 57398) {
+      return `f${cp - 57363}`
+    }
+
+    // Kitty assigns functional codepoints to standalone modifier keys.
+    // Their names let the wizard ignore modifier presses before the actual chord.
+    if (cp >= 57441 && cp <= 57454) {
+      return [
+        'leftshift', 'leftctrl', 'leftalt', 'leftsuper', 'lefthyper', 'leftmeta',
+        'rightshift', 'rightctrl', 'rightalt', 'rightsuper', 'righthyper', 'rightmeta',
+        'isolevel3shift', 'isolevel5shift'
+      ][cp - 57441]
+    }
+
     switch (cp) {
       case 9:
         return 'tab'

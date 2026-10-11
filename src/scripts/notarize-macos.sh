@@ -1,5 +1,4 @@
 #!/bin/bash
-# SPDX-License-Identifier: MIT
 
 set -euo pipefail
 
@@ -39,12 +38,14 @@ cleanup () {
 
 trap cleanup EXIT
 
+# CI accepts either a certificate file or base64-encoded PKCS#12 contents.
 if [[ -f "$CSC_LINK" ]]; then
   cp "$CSC_LINK" "$CERTIFICATE_PATH"
 else
   printf '%s' "$CSC_LINK" | base64 --decode > "$CERTIFICATE_PATH"
 fi
 
+# Use a temporary signing keychain and grant non-interactive access to Apple's signing tools.
 security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
 security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
 security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
@@ -54,6 +55,7 @@ security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN
 
 SIGNING_IDENTITY="${APPLE_SIGNING_IDENTITY:-}"
 
+# Prefer the explicit identity; otherwise discover a Developer ID certificate in the imported keychain.
 if [[ -z "$SIGNING_IDENTITY" ]]; then
   SIGNING_IDENTITY=$(security find-identity -v -p codesigning "$KEYCHAIN_PATH" | sed -n 's/.*"\(Developer ID Application:.*\)"/\1/p' | head -n 1)
 fi
@@ -63,6 +65,7 @@ if [[ -z "$SIGNING_IDENTITY" ]]; then
   exit 1
 fi
 
+# Harden and verify the executable before submitting its archive for notarization.
 codesign --force --timestamp --options runtime --entitlements "$ENTITLEMENTS_PATH" --sign "$SIGNING_IDENTITY" "$EXECUTABLE_PATH"
 codesign --verify --strict --verbose=2 "$EXECUTABLE_PATH"
 

@@ -1,5 +1,4 @@
 #!/usr/bin/env -S node
-// SPDX-License-Identifier: MIT
 
 import { execSync } from 'node:child_process'
 import { readFile, writeFile } from 'node:fs/promises'
@@ -37,6 +36,7 @@ async function getVersion () {
 async function updatePackageJson (version) {
   const packageJson = JSON.parse(await readFile('package.json', 'utf8'))
   packageJson.version = version
+
   await writeFile('package.json', JSON.stringify(packageJson, null, 2))
 }
 
@@ -45,9 +45,11 @@ const version = await getVersion()
 
 await updatePackageJson(version)
 
+// Release automation supplies an identity; local runs retain the developer's Git configuration.
 if (process.env.GITHUB_ACTIONS === 'true') {
   execSync(`git config --global user.name "${userInfo[0]}"`)
   execSync(`git config --global user.email "${userInfo[1]}"`)
 }
 
+// Record the package version bump and the selected contributor's sign-off together.
 execSync(`git commit -a -m "chore: Bumped v${version}." -m "Signed-off-by: ${userInfo[0]} <${userInfo[1]}>"`)

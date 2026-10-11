@@ -1,5 +1,3 @@
-// SPDX-License-Identifier: MIT
-
 export default {
   printWidth: 120,
   semi: false,

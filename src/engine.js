@@ -1,5 +1,3 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
-
 import { dlopen, getRawPointer, toBuffer, toString } from 'node:ffi'
 import { AudioError, LoaderError } from './errors.js'
 import { libraryPath, loadGameAssets, startupProgress } from './loader.js'
@@ -16,6 +14,7 @@ export class Engine {
   constructor (runtime) {
     const libPath = libraryPath('engine')
 
+    // SAFETY: These signatures match the native platform layer on supported 64-bit targets.
     const {
       lib,
       functions: {
@@ -52,6 +51,7 @@ export class Engine {
     this.#lib = lib
     this.#cleanup = cleanup
     this.#destroyed = false
+
     this.init = init
     this.tick = tick
     this.sendKey = sendKey
@@ -67,15 +67,17 @@ export class Engine {
   }
 
   initialize (config) {
-    // Convert all arguments to pointers to get a char**
     const assets = loadGameAssets(config)
     const args = [process.execPath, '-iwad', assets.wadPath]
-    // SAFETY: Both loaders copy the borrowed buffers during these synchronous calls.
+
     startupProgress('Preparing in-memory game assets...')
+    // SAFETY: The mount copies the borrowed WAD buffer during this synchronous call.
     if (assets.wad && !this.#mountFiles(assets.wadPath, assets.wad, BigInt(assets.wad.length), assets.saveDirectory)) {
       throw new LoaderError('Cannot initialize in-memory game files')
     }
+
     startupProgress('Initializing the soundfont synthesizer...')
+    // SAFETY: The synthesizer copies the borrowed font buffer during this synchronous call.
     if (assets.font.length > 0x7fffffff || !this.#loadSoundfont(assets.font, assets.font.length)) {
       throw new AudioError(`Cannot load SF2 soundfont: ${assets.fontPath}`)
     }
@@ -84,18 +86,22 @@ export class Engine {
       args.push('-playdemo', config.demo)
     }
 
+    // Retain the NUL-terminated buffers while constructing the native char** argument table.
     const argsC = args.map(s => Buffer.from(s + '\0', 'utf8'))
     const argsBuffer = Buffer.alloc(args.length * 8) // Each pointer is bigint
     for (let i = 0; i < args.length; i++) {
+      // SAFETY: argsC keeps each allocation alive through the synchronous initialization below.
       argsBuffer.writeBigUInt64LE(getRawPointer(argsC[i]), i * 8)
     }
 
-    // Initialize the game
+    // SAFETY: Keep the callback registered while native code may invoke it on Node's thread.
     this.#setWindowTitle = this.#lib.registerCallback({ arguments: ['pointer'], return: 'void' }, cstr => {
+      // SAFETY: Doom provides a borrowed NUL-terminated title, copied before returning.
       process.title = toString(cstr)
     })
 
     startupProgress('Initializing Doom...')
+    // SAFETY: Native initialization copies argv before the local buffers can be collected.
     this.init(args.length, argsBuffer, this.#setWindowTitle)
   }
 

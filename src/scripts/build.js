@@ -1,5 +1,3 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
-
 import { spawn } from 'node:child_process'
 import { access, mkdir, rename } from 'node:fs/promises'
 import { resolve } from 'node:path'
@@ -8,6 +6,7 @@ import { DependencyError } from '../errors.js'
 const root = resolve(import.meta.dirname, '../..')
 const source = resolve(root, 'deps/engine/src')
 const temporary = resolve(root, 'tmp/doomgeneric')
+
 // Match the former CMake source list, replacing all upstream sound glue with audio.c.
 const sources = `dummy am_map doomdef doomstat dstrings d_event d_items d_iwad d_loop d_main
 d_mode d_net f_finale f_wipe g_game hu_lib hu_stuff info i_cdmus i_endoom i_joystick i_scale
@@ -30,6 +29,7 @@ async function run (args) {
       reject(new DependencyError(`${compiler} exited with code ${code}`))
     }
   })
+
   await promise
 }
 
@@ -37,18 +37,24 @@ async function main () {
   if (!['darwin', 'linux'].includes(process.platform)) {
     throw new DependencyError(`Unsupported platform: ${process.platform}`)
   }
+
+  // Check the complete source/header set before creating output or invoking the compiler.
   for (const file of sources) {
     await access(file)
   }
+
   for (const header of ['tsf.h', 'tml.h']) {
     await access(resolve(root, 'deps/audio/src', header))
   }
+
   await mkdir(temporary, { recursive: true })
   const objects = []
+
   for (const [index, file] of sources.entries()) {
     console.log(`\x1b[35;1m--> Compiling ${index + 1}/${sources.length}: ${file.slice(root.length + 1)}\x1b[0m`)
     const object = resolve(temporary, `${index}.o`)
     const flags = file === resolve(source, 'i_system.c') ? ['-DI_Quit=doomgeneric_I_Quit'] : []
+
     // Route upstream informational output to host no-ops without redirecting
     // Node's stdout (which carries Kitty graphics) or changing upstream files.
     if (file.startsWith(`${source}/`)) {
@@ -56,16 +62,20 @@ async function main () {
       flags.push('-Dfopen=destino_fopen', '-Dremove=destino_remove', '-Drename=destino_rename',
         '-Dmkdir=destino_mkdir', '-Dsystem=destino_system')
     }
+
     await run(['-c', '-fPIC', '-ggdb3', '-Os', '-DFEATURE_SOUND', '-I', source,
       '-I', resolve(root, 'deps/audio/src'), ...flags, file, '-o', object])
     objects.push(object)
   }
+
+  // Link in the staging directory; publish only a successfully completed shared library.
   const filename = `destino.${process.platform === 'darwin' ? 'dylib' : 'so'}`
   console.log(`\x1b[35;1m--> Linking ${filename}\x1b[0m`)
   const flags = process.platform === 'darwin'
     ? ['-dynamiclib', `-Wl,-install_name,@rpath/${filename}`]
     : ['-shared', '-Wl,-Bsymbolic-functions', '-Wl,-z,defs', `-Wl,-soname,${filename}`]
   await run([...flags, ...objects, '-lm', '-o', resolve(temporary, filename)])
+
   await rename(resolve(temporary, filename), resolve(root, 'deps/engine', filename))
   console.log(`\x1b[36mReady: deps/engine/${filename}\x1b[0m`)
 }
