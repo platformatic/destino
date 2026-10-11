@@ -1,5 +1,4 @@
 #!/bin/bash
-# SPDX-License-Identifier: MIT
 
 set -euo pipefail
 
@@ -28,6 +27,7 @@ if [[ ${#artifact_directories[@]} -eq 0 ]]; then
   exit 1
 fi
 
+# Archive each downloaded platform artifact separately for release distribution.
 release_assets_dir="tmp/release-assets"
 rm -rf "$release_assets_dir"
 mkdir -p "$release_assets_dir"
@@ -56,6 +56,7 @@ if [[ ${#release_assets[@]} -eq 0 ]]; then
   exit 1
 fi
 
+# Reruns replace uploaded assets without creating a second release for the same tag.
 if gh release view "$tag" >/dev/null 2>&1; then
   gh release upload "$tag" "${release_assets[@]}" --clobber
 else

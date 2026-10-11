@@ -1,8 +1,10 @@
-// SPDX-License-Identifier: MIT
-
 import { writeSync } from 'node:fs'
 import { basename } from 'node:path'
 import { Audio } from './audio.js'
+import { bootstrap } from './cli/bootstrap.js'
+import { parseCommandLine, usage } from './cli/args.js'
+import { listAudioDevices } from './cli/audio.js'
+import { configureInput } from './cli/input.js'
 import { loadConfig, serializeConfig } from './config.js'
 import { Engine } from './engine.js'
 import { TerminalParser } from './input.js'
@@ -52,19 +54,42 @@ function shutdown (runtime, resolve) {
   resolve()
 }
 
-export async function main (context) {
+export async function main (args = process.argv.slice(2)) {
+  const options = parseCommandLine(args)
+
+  // Maintenance modes must return before game resources or terminal rendering are initialized.
+  if (options.help) {
+    console.log(usage)
+    return
+  }
+
+  if (options.audio) {
+    listAudioDevices()
+    return
+  }
+
+  if (options.input) {
+    await configureInput(options)
+    return
+  }
+
+  if (options.bootstrap) {
+    await bootstrap(options.config)
+    return
+  }
+
   const rows = process.stdout.rows ?? 0
   const columns = process.stdout.columns ?? 0
   const terminalArea = rows * columns
   const { promise, resolve } = Promise.withResolvers()
-  const config = await loadConfig()
+  const config = await loadConfig(options.config)
 
   if (process.env.DEBUG === 'true') {
     printDebugInfo(columns, rows, terminalArea, config)
     return
   }
 
-  // Open FFI libs
+  // Keep partially initialized resources together so startup failures use the same teardown path.
   const engine = new Engine()
   const runtime = {
     engine,
@@ -79,13 +104,15 @@ export async function main (context) {
   process.once('SIGINT', boundShutdown)
   process.once('SIGTERM', boundShutdown)
 
-  // Setup modules
+  // Negotiate terminal capabilities before starting ticks or submitting audio.
   try {
     runtime.renderer = new Video(engine, config)
     runtime.engine.initialize(config)
-    runtime.audio = new Audio()
+    runtime.audio = new Audio(config.audio)
+
     runtime.renderer.setStatus(`${basename(config.wadPath || 'freedoom1.wad')} | Ctrl+C: Quit`)
     runtime.renderer.setInfo(`${engine.getFrameWidth()}x${engine.getFrameHeight()} | Audio: SDL3 44.1 kHz stereo`)
+
     startupProgress('Initializing terminal graphics and keyboard...')
     runtime.renderer.setupFrameBuffer()
     runtime.input.on('quit', boundShutdown)
@@ -100,13 +127,14 @@ export async function main (context) {
     throw error
   }
 
-  // Execute the game, doom runs at 35Hz
+  // Doom advances at 35 Hz; presentation and audio consume the same completed tick.
   runtime.timer = setInterval(() => {
     if (runtime.shuttingDown) {
       return
     }
 
     runtime.engine.tick()
+
     try {
       runtime.audio.write(runtime.engine.renderAudio())
       // Present the whole terminal even when Doom has not marked a new frame.
@@ -114,6 +142,7 @@ export async function main (context) {
     } catch (error) {
       console.error(`${error.code}: ${error.message}`)
       process.exitCode = 1
+
       boundShutdown()
       return
     }
@@ -133,5 +162,16 @@ export async function main (context) {
 }
 
 if (import.meta.main) {
-  await main()
+  try {
+    await main()
+  } catch (error) {
+    // Missing configuration is a CLI usage failure, not a generic runtime error.
+    if (error.code === 'DESTINO_CONFIG' && error.cause?.code === 'ENOENT') {
+      console.error(usage)
+    } else {
+      console.error(`${error.code}: ${error.message}`)
+    }
+
+    process.exitCode = 1
+  }
 }

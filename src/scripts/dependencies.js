@@ -1,5 +1,3 @@
-// SPDX-License-Identifier: MIT
-
 import { execFile } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { dlopen } from 'node:ffi'
@@ -42,15 +40,18 @@ async function metadata (url) {
   if (!response.ok) {
     throw new DependencyError(`${url}: HTTP ${response.status}`)
   }
+
   return response.json()
 }
 
 async function download (url, path) {
   info(`Downloading ${basename(path)}...`)
+
   const response = await fetch(url, { signal: AbortSignal.timeout(120000) })
   if (!response.ok) {
     throw new DependencyError(`${url}: HTTP ${response.status}`)
   }
+
   const data = Buffer.from(await response.arrayBuffer())
   await writeFile(path, data)
   return data
@@ -60,14 +61,17 @@ async function localSDL () {
   const libdir = await run('pkg-config', ['--variable=libdir', 'sdl3'])
   const filename = process.platform === 'darwin' ? 'libSDL3.dylib' : 'libSDL3.so'
   const source = await realpath(resolve(libdir, process.platform === 'darwin' ? filename : 'libSDL3.so.0'))
+
   // SAFETY: SDL3 exposes SDL_GetVersion as int(void) on the host architecture.
   const { lib, functions } = dlopen(source, { SDL_GetVersion: { arguments: [], return: 'int32' } })
+
   try {
     // SAFETY: The resolved function matches SDL3's version ABI.
     const version = functions.SDL_GetVersion()
     if (version < 3002000 || version >= 4000000) {
       throw new DependencyError('SDL 3.2 or later in the 3.x series is required')
     }
+
     return { source, filename, version }
   } finally {
     lib.close()
@@ -76,10 +80,12 @@ async function localSDL () {
 
 async function preflight () {
   step('Checking local prerequisites')
+
   try {
     for (const command of ['pkg-config', 'tar', 'unzip']) {
       await run('which', [command])
     }
+
     await run('pkg-config', ['--exists', 'sdl3'])
     return await localSDL()
   } catch (error) {
@@ -94,20 +100,24 @@ async function preflight () {
 async function archive (directory, url, zip = false) {
   const path = resolve(directory, zip ? 'download.zip' : 'download.tar.gz')
   await download(url, path)
+
   info('Extracting archive...')
   if (zip) {
     await run('unzip', ['-q', path, '-d', directory])
   } else {
     await run('tar', ['-xzf', path, '-C', directory, '--strip-components=1'])
   }
+
   await rm(path)
 }
 
 async function install (name, action) {
   step(name)
   const temporary = await mkdtemp(resolve(deps, `.${name}-`))
+
   try {
     await action(temporary)
+
     // Replace only this component after successful preparation, preserving unrelated deps.
     await rm(resolve(deps, name), { recursive: true, force: true })
     await rename(temporary, resolve(deps, name))
@@ -123,14 +133,18 @@ async function installDoomGeneric () {
     const extracted = resolve(directory, 'archive')
     const source = resolve(extracted, 'doomgeneric')
     const destination = resolve(directory, 'src')
+
     await mkdir(extracted)
     await archive(extracted, url)
+
+    // Import only upstream C sources and headers, not its build system or bundled assets.
     await mkdir(destination)
     for (const entry of await readdir(source, { withFileTypes: true })) {
       if (entry.isFile() && /\.(c|h)$/.test(entry.name)) {
         await cp(resolve(source, entry.name), resolve(destination, entry.name))
       }
     }
+
     await rm(extracted, { recursive: true })
   })
 }
@@ -139,18 +153,22 @@ async function installFreedoom () {
   await install('freedoom', async directory => {
     const name = `freedoom-${freedoomVersion}`
     await archive(directory, `https://github.com/freedoom/freedoom/releases/download/v${freedoomVersion}/${name}.zip`, true)
+
+    // Keep WADs at the stable asset root rather than retaining the release archive layout.
     const extracted = resolve(directory, name)
     for (const entry of await readdir(extracted, { withFileTypes: true })) {
       if (entry.isFile() && entry.name.endsWith('.wad')) {
         await cp(resolve(extracted, entry.name), resolve(directory, entry.name))
       }
     }
+
     await rm(extracted, { recursive: true })
   })
 }
 
 async function importSDL (directory, libraries) {
   await mkdir(directory)
+
   for (const { source, filename, version } of libraries) {
     info(`Importing ${source} (${version})...`)
     const bytes = await readFile(source)
@@ -161,16 +179,19 @@ async function importSDL (directory, libraries) {
 async function installAudio (libraries) {
   await install('audio', async directory => {
     await importSDL(resolve(directory, 'lib'), libraries)
+
     const source = resolve(directory, 'src')
     const font = resolve(directory, 'font')
     await mkdir(source)
     await mkdir(font)
+
     for (const filename of ['tsf.h', 'tml.h']) {
       await download(
         `https://raw.githubusercontent.com/schellingb/TinySoundFont/${tinySoundFontCommit}/${filename}`,
         resolve(source, filename)
       )
     }
+
     await download(
       `https://raw.githubusercontent.com/mrbumpy409/GeneralUser-GS/${generalUserGSCommit}/GeneralUser-GS.sf2`,
       resolve(font, 'GeneralUser-GS.sf2')
@@ -183,9 +204,12 @@ async function installVideo (target) {
     const data = await metadata(`https://registry.npmjs.org/@opentui/core-${target}/${openTUIVersion}`)
     const path = resolve(directory, 'package.tgz')
     const bytes = await download(data.dist.tarball, path)
+
+    // Verify npm's integrity metadata before extracting executable native code.
     if (`sha512-${createHash('sha512').update(bytes).digest('base64')}` !== data.dist.integrity) {
       throw new DependencyError('OpenTUI archive integrity mismatch')
     }
+
     const filename = target.startsWith('darwin-') ? 'libopentui.dylib' : 'libopentui.so'
     await run('tar', ['-xzf', path, '-C', directory, '--strip-components=1', `package/${filename}`])
     await rm(path)
@@ -197,15 +221,20 @@ async function main () {
   if (!targets.includes(target)) {
     throw new DependencyError(`Unsupported video target: ${target}`)
   }
+
   if (!targets.includes(currentTarget)) {
     throw new DependencyError(`Unsupported host: ${currentTarget}`)
   }
+
+  // Validate local prerequisites before touching any managed dependency directory.
   const sdl = await preflight()
   await mkdir(deps, { recursive: true })
+
   await installDoomGeneric()
   await installFreedoom()
   await installAudio([sdl])
   await installVideo(target)
+
   info('All dependencies are ready.')
 }
 

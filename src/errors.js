@@ -1,5 +1,3 @@
-// SPDX-License-Identifier: MIT
-
 export class DependencyError extends Error {
   constructor (message) {
     super(message)
@@ -37,5 +35,13 @@ export class LoaderError extends Error {
     super(message, options)
     this.name = 'LoaderError'
     this.code = 'DESTINO_LOADER'
+  }
+}
+
+export class ConfigError extends Error {
+  constructor (message, options) {
+    super(message, options)
+    this.name = 'ConfigError'
+    this.code = 'DESTINO_CONFIG'
   }
 }

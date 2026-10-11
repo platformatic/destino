@@ -1,5 +1,3 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
-
 #include <stdint.h>
 #include <limits.h>
 #include <stdio.h>
@@ -97,6 +95,7 @@ void I_StopSound(int channel) {
   if (channel < 0 || channel >= AUDIO_CHANNELS) {
     return;
   }
+
   free(channels[channel].samples);
   memset(&channels[channel], 0, sizeof(Channel));
 }
@@ -105,6 +104,7 @@ void I_ShutdownSound(void) {
   for (int channel = 0; channel < AUDIO_CHANNELS; channel++) {
     I_StopSound(channel);
   }
+
   initialized = false;
 }
 
@@ -122,6 +122,7 @@ int I_GetSfxLumpNum(sfxinfo_t *sfx) {
     // Several logical effects may refer to the same underlying WAD sample.
     sfx = sfx->link;
   }
+
   snprintf(name, sizeof(name), "%s%.8s", prefix ? "ds" : "", sfx->name);
   return W_GetNumForName(name);
 }
@@ -130,8 +131,10 @@ void I_UpdateSoundParams(int channel, int volume, int separation) {
   if (channel < 0 || channel >= AUDIO_CHANNELS) {
     return;
   }
+
   volume = volume < 0 ? 0 : volume > 127 ? 127 : volume;
   separation = separation < 0 ? 0 : separation > 254 ? 254 : separation;
+
   // Doom's ranges are 0..127 for volume and 0..254 for separation. Linear
   // panning puts half the amplitude in each ear at the center (127).
   // Store integer numerators here and normalize while mixing samples.
@@ -143,7 +146,9 @@ int I_StartSound(sfxinfo_t *sfx, int channel, int volume, int separation) {
   if (!initialized || channel < 0 || channel >= AUDIO_CHANNELS) {
     return -1;
   }
+
   I_StopSound(channel);
+
   // A DMX lump begins with an 8-byte little-endian header: format (2 bytes),
   // sample rate (2 bytes), then sample count (4 bytes). Decode bytes explicitly
   // instead of casting, which would assume native endianness and alignment.
@@ -151,20 +156,24 @@ int I_StartSound(sfxinfo_t *sfx, int channel, int volume, int separation) {
   if (size < 8) {
     return -1;
   }
+
   unsigned char *data = malloc((size_t) size);
   if (data == NULL) {
     return -1;
   }
   W_ReadLump(sfx->lumpnum, data);
+
   uint32_t rate = (uint32_t) data[2] | ((uint32_t) data[3] << 8);
   uint32_t length = (uint32_t) data[4] | ((uint32_t) data[5] << 8)
                   | ((uint32_t) data[6] << 16) | ((uint32_t) data[7] << 24);
+
   // Validate the declared sample count against the actual WAD allocation before
   // reading samples. Tiny/unsupported lumps are ignored, matching the old port.
   if (data[0] != 3 || data[1] != 0 || rate == 0 || length <= 48 || length > (uint32_t) size - 8) {
     free(data);
     return -1;
   }
+
   // DMX skips 16 padding samples at both ends of an unsigned 8-bit mono lump.
   length -= 32;
   memmove(data, data + 24, length);
@@ -183,11 +192,14 @@ static void ResetMusicSynth(void) {
   if (synth == NULL) {
     return;
   }
+
   tsf_reset(synth);
+
   // TinySoundFont's reset uses a 10ms release. Drain it off-output so notes
   // from the old song cannot bleed into a new song or the next loop.
   float discard[(AUDIO_RATE / 100 + 1) * 2];
   tsf_render_float(synth, discard, AUDIO_RATE / 100 + 1, 0);
+
   for (int channel = 0; channel < 16; channel++) {
     tsf_channel_set_presetnumber(synth, channel, 0, channel == 9);
   }
@@ -206,12 +218,15 @@ void I_ShutdownMusic(void) {
   song = NULL;
   next_event = NULL;
   music_initialized = false;
+
+  // Active playback is cleared; release all owned score lists before the synthesizer.
   while (songs != NULL) {
     Song *next = songs->next;
     tml_free(songs->messages);
     free(songs);
     songs = next;
   }
+
   if (synth != NULL) {
     tsf_close(synth);
     synth = NULL;
@@ -227,13 +242,16 @@ int audio_load_soundfont(const void *data, int size) {
   if (synth == NULL) {
     return 0;
   }
+
   tsf_set_output(synth, TSF_STEREO_INTERLEAVED, AUDIO_RATE, 0);
+
   // A single SF2 note can use multiple layers/voices. Bound polyphony and
   // preallocate voices to avoid repeated voice-array growth while rendering.
   if (!tsf_set_max_voices(synth, 256)) {
     I_ShutdownMusic();
     return 0;
   }
+
   ResetMusicSynth();
   return 1;
 }
@@ -256,6 +274,8 @@ void *I_RegisterSong(void *data, int length) {
   if (!music_initialized) {
     return NULL;
   }
+
+  // Decode MIDI directly or convert MUS into a temporary in-memory MIDI stream.
   tml_message *messages = NULL;
   if (data != NULL && length >= 4 && memcmp(data, "MThd", 4) == 0) {
     messages = tml_load_memory(data, length);
@@ -272,6 +292,7 @@ void *I_RegisterSong(void *data, int length) {
         messages = tml_load_memory(midi, (int) size);
       }
     }
+
     if (input != NULL) {
       mem_fclose(input);
     }
@@ -279,10 +300,12 @@ void *I_RegisterSong(void *data, int length) {
       mem_fclose(output);
     }
   }
+
   if (messages == NULL) {
     fprintf(stderr, "DESTINO_MIDI_INVALID: Cannot decode MUS/MIDI song.\n");
     return NULL;
   }
+
   Song *registered = calloc(1, sizeof(Song));
   if (registered == NULL) {
     tml_free(messages);
@@ -290,16 +313,19 @@ void *I_RegisterSong(void *data, int length) {
     return NULL;
   }
   registered->messages = messages;
+
   // TML merges tracks and resolves tempo changes into millisecond timestamps.
   // Convert to output frames with ceiling division: never dispatch an event
   // earlier than its timestamp. Precision is limited to TML's millisecond clock.
   for (tml_message *event = messages; event != NULL; event = event->next) {
     registered->duration = ((uint64_t) event->time * AUDIO_RATE + 999) / 1000;
   }
+
   // A zero-duration MIDI must not spin forever when looping.
   if (registered->duration == 0) {
     registered->duration = 1;
   }
+
   registered->next = songs;
   songs = registered;
   return registered;
@@ -312,12 +338,15 @@ void I_UnRegisterSong(void *handle) {
   while (*link != NULL && *link != handle) {
     link = &(*link)->next;
   }
+
   if (*link == NULL) {
     return;
   }
+
   if (song == handle) {
     I_StopSong();
   }
+
   Song *removed = *link;
   *link = removed->next;
   tml_free(removed->messages);
@@ -329,9 +358,11 @@ void I_PlaySong(void *handle, boolean looping) {
   // song's release tails. MIDI channels must not inherit a previous level's bank,
   // sustain pedal, pitch wheel, or instrument selection.
   I_StopSong();
+
   if (!music_initialized || handle == NULL) {
     return;
   }
+
   for (Song *registered = songs; registered != NULL; registered = registered->next) {
     if (registered == handle) {
       song = registered;
@@ -374,11 +405,13 @@ static void DispatchMusicEvent(const tml_message *event) {
 
 static void RenderMusic(int frames) {
   memset(music_pcm, 0, (size_t) frames * 2 * sizeof(float));
+
   // Pause freezes both the score clock and synthesizer envelopes, but effects
   // continue through audio_render(). Silence is produced without losing notes.
   if (!music_initialized || music_paused || song == NULL) {
     return;
   }
+
   int offset = 0;
   while (offset < frames && song != NULL) {
     // Dispatch all simultaneous events before generating the next frame. Using
@@ -387,6 +420,7 @@ static void RenderMusic(int frames) {
       DispatchMusicEvent(next_event);
       next_event = next_event->next;
     }
+
     if (next_event == NULL && music_position >= song->duration && !music_ending) {
       if (music_looping) {
         ResetMusicSynth();
@@ -394,6 +428,7 @@ static void RenderMusic(int frames) {
         next_event = song->messages;
         continue;
       }
+
       // Release held notes, including sustain, and render the natural tail.
       for (int channel = 0; channel < 16; channel++) {
         tsf_channel_set_sustain(synth, channel, 0);
@@ -401,11 +436,14 @@ static void RenderMusic(int frames) {
       }
       music_ending = true;
     }
+
     if (music_ending && tsf_active_voice_count(synth) == 0) {
       song = NULL;
       break;
     }
+
     int count = frames - offset;
+
     // Split the output block at the next MIDI boundary rather than delaying
     // events until the next JavaScript tick. A loop can restart inside a block.
     uint64_t boundary = next_event != NULL
@@ -413,6 +451,7 @@ static void RenderMusic(int frames) {
     if (!music_ending && boundary > music_position && boundary - music_position < (uint64_t) count) {
       count = (int) (boundary - music_position);
     }
+
     tsf_render_float(synth, music_pcm + offset * 2, count, 0);
     offset += count;
     music_position += count;
@@ -425,18 +464,23 @@ int16_t *audio_render(int frames) {
   if (frames < 0 || frames > AUDIO_FRAMES) {
     return NULL;
   }
+
   memset(pcm, 0, (size_t) frames * 2 * sizeof(int16_t));
   RenderMusic(frames);
+
   for (int frame = 0; frame < frames; frame++) {
     // Mix in float so music and effects are saturated together only once.
     float left = music_pcm[frame * 2] * 32768.0f * music_volume / 127.0f;
     float right = music_pcm[frame * 2 + 1] * 32768.0f * music_volume / 127.0f;
+
     for (int index = 0; index < AUDIO_CHANNELS; index++) {
       Channel *channel = &channels[index];
       if (channel->samples == NULL) {
         continue;
       }
+
       uint32_t sample = (uint32_t) (channel->position / AUDIO_RATE);
+
       // Linear interpolation between adjacent source samples supports arbitrary
       // WAD rates. Clamp the second index at the end to avoid a one-byte overread.
       uint32_t next = sample + 1 < channel->length ? sample + 1 : sample;
@@ -447,11 +491,13 @@ int16_t *audio_render(int frames) {
       value += (int32_t) ((int64_t) delta * (int64_t) (channel->position % AUDIO_RATE) / AUDIO_RATE);
       left += value * channel->left / (127 * 254);
       right += value * channel->right / (127 * 254);
+
       channel->position += channel->rate;
       if (channel->position / AUDIO_RATE >= channel->length) {
         I_StopSound(index);
       }
     }
+
     // Saturation prevents loud overlapping sources from wrapping from positive
     // to negative values. Interleave L,R pairs in the buffer SDL3 will consume.
     pcm[frame * 2] = (int16_t) (left < -32768 ? -32768 : left > 32767 ? 32767 : left);

@@ -1,5 +1,3 @@
-// SPDX-License-Identifier: MIT
-
 import { toBuffer } from 'node:ffi'
 import { writeSync } from 'node:fs'
 import { VideoError } from './errors.js'
@@ -12,15 +10,18 @@ export function fixVideoIndex (data) {
   const parts = []
   let copied = 0
   let offset = 0
+
   while ((offset = data.indexOf(start, offset)) !== -1) {
     const end = data.indexOf(stop, offset + start.length)
     if (end === -1) {
       break
     }
+
     const separator = data.indexOf(59, offset + start.length)
     const headerEnd = separator >= 0 && separator < end ? separator : end
     const headerStart = offset + start.length
     const header = data.toString('ascii', headerStart, headerEnd)
+
     if (/(?:^|,)a=p(?:,|$)/.test(header)) {
       const match = /(?:^|,)z=(-?\d+)(?=,|$)/.exec(header)
       if (match && match[1] !== '-1') {
@@ -29,11 +30,14 @@ export function fixVideoIndex (data) {
         copied = valueStart + match[1].length
       }
     }
+
     offset = end + stop.length
   }
+
   if (!parts.length) {
     return data
   }
+
   parts.push(data.subarray(copied))
   return Buffer.concat(parts)
 }
@@ -52,6 +56,7 @@ export class VideoOutput {
     // two independent images, whose native handles and output state cannot mix.
     this.#lib = lib
     this.#fixIndex = fixIndex
+
     try {
       this.#functions = lib.getFunctions({
         createNativeSpanFeed: { arguments: ['pointer'], return: 'pointer' },
@@ -60,6 +65,7 @@ export class VideoOutput {
         streamDrainSpans: { arguments: ['pointer', 'pointer', 'uint32'], return: 'uint32' },
         destroyNativeSpanFeed: { arguments: ['pointer'], return: 'void' }
       })
+
       // SAFETY: OpenTUI 0.5.11 uses 64-bit pointers and 24-byte feed options.
       const options = Buffer.alloc(24)
       options.writeUInt32LE(65536, 0)
@@ -71,6 +77,8 @@ export class VideoOutput {
       if (!this.feed) {
         throw new VideoError('Could not create OpenTUI output feed')
       }
+
+      // SAFETY: The callback and its borrowed state view remain live until the feed is detached.
       this.#callback = lib.registerCallback(
         { arguments: ['uint64', 'uint32', 'uint64', 'uint64'], return: 'void' },
         (stream, event, pointer, size) => {
@@ -81,6 +89,7 @@ export class VideoOutput {
           }
         }
       )
+
       this.#functions.streamSetCallback(this.feed, this.#callback)
       if (this.#functions.attachNativeSpanFeed(this.feed) !== 0) {
         throw new VideoError('Could not attach OpenTUI output feed')
@@ -94,6 +103,8 @@ export class VideoOutput {
   flush (operation) {
     const chunks = []
     let count
+
+    // Drain and copy pinned spans before acknowledging their ownership counters.
     while ((count = this.#functions.streamDrainSpans(this.feed, this.#spans, 64)) > 0) {
       for (let i = 0; i < count; i++) {
         const offset = i * 24
@@ -104,17 +115,23 @@ export class VideoOutput {
         if (!this.#state || index >= this.#state.length || this.#state[index] === 0) {
           throw new VideoError('Invalid OpenTUI output span ownership')
         }
+
         // SAFETY: Copy each pinned native span before releasing its chunk.
         chunks.push(Buffer.from(toBuffer(pointer + BigInt(start), length, false)))
         this.#state[index]--
       }
     }
+
     if (!chunks.length) {
       return
     }
+
     const data = Buffer.concat(chunks)
+
     // Transform complete native render transactions, never individual spans.
     const output = operation === 'render' && this.#fixIndex ? fixVideoIndex(data) : data
+
+    // Synchronous writes may be partial; preserve the complete transaction and its byte order.
     let offset = 0
     while (offset < output.length) {
       offset += writeSync(process.stdout.fd, output, offset, output.length - offset)
@@ -122,12 +139,14 @@ export class VideoOutput {
   }
 
   close () {
+    // Remove the native callback source before unregistering its JavaScript callback.
     if (this.feed) {
       this.#functions.streamSetCallback(this.feed, null)
       this.#functions.destroyNativeSpanFeed(this.feed)
       this.feed = null
       this.#state = null
     }
+
     if (this.#callback) {
       this.#lib.unregisterCallback(this.#callback)
       this.#callback = null

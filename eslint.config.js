@@ -1,5 +1,3 @@
-// SPDX-License-Identifier: MIT
-
 import { globalIgnores } from 'eslint/config'
 import neostandard from 'neostandard'
 

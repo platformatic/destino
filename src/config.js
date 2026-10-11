@@ -1,8 +1,6 @@
-// SPDX-License-Identifier: MIT
-
-import { existsSync } from 'node:fs'
-import { readFile, writeFile } from 'node:fs/promises'
-import { configPath, findWadPath, packaged, schemaPath } from './loader.js'
+import { readFile } from 'node:fs/promises'
+import { ConfigError } from './errors.js'
+import { configPath, schemaPath } from './loader.js'
 
 export const defaultConfigPath = 'destino.json'
 
@@ -36,7 +34,7 @@ async function createConfig (configPath) {
   try {
     source = await readFile(configPath, 'utf8')
   } catch (error) {
-    throw new Error(`Cannot read config file: ${configPath}`, { cause: error })
+    throw new ConfigError(`Cannot read config file: ${configPath}. Use --bootstrap to create it.`, { cause: error })
   }
 
   let parsed
@@ -44,15 +42,26 @@ async function createConfig (configPath) {
   try {
     parsed = JSON.parse(source)
   } catch (error) {
-    throw new Error(`Invalid JSON in config file: ${configPath}`, { cause: error })
+    throw new ConfigError(`Invalid JSON in config file: ${configPath}`, { cause: error })
   }
 
   const { wadPath: defaultWadPath, sf2Path: defaultSF2Path, keybindings: defaultKeyBindings } = defaultConfig
-  const { wadPath, sf2Path, fixVideoIndex, fixIndexing, showStatus, keybindings, ...rest } = parsed
 
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    throw new ConfigError('Configuration must be a JSON object')
+  }
+
+  const { wadPath, sf2Path, audio, fixVideoIndex, fixIndexing, showStatus, keybindings, ...rest } = parsed
+
+  if (audio !== undefined && audio !== null && (typeof audio !== 'string' || audio.length === 0)) {
+    throw new ConfigError('audio must be a non-empty device name or null')
+  }
+
+  // Fill omitted settings without discarding custom fields or partial keybinding overrides.
   return {
     wadPath: wadPath ?? defaultWadPath,
     sf2Path: sf2Path ?? defaultSF2Path,
+    audio: audio ?? null,
     fixVideoIndex: fixVideoIndex ?? defaultConfig.fixVideoIndex,
     showStatus: showStatus ?? defaultConfig.showStatus,
     keybindings: {
@@ -63,7 +72,7 @@ async function createConfig (configPath) {
   }
 }
 
-// Compact arrays of strings into single lines for better readability
+// Compact short arrays of strings into single lines so keybindings remain easy to edit.
 export function serializeConfig (config, configPath) {
   return JSON.stringify(config, null, 2).replaceAll(
     /\[\s+((.+\n){1,2})\s+\]/gm,
@@ -71,23 +80,6 @@ export function serializeConfig (config, configPath) {
   )
 }
 
-export async function loadConfig () {
-  // Load the destino.json file
-  const path = configPath()
-
-  if (!existsSync(path)) {
-    if (packaged) {
-      return structuredClone(defaultConfig)
-    }
-    await writeFile(
-      path,
-      serializeConfig({ ...defaultConfig, wadPath: await findWadPath() }),
-      'utf8'
-    )
-
-    console.log(`Wrote default config to ${path}. Check it out and then run the program again!`)
-    process.exit(0)
-  }
-
+export async function loadConfig (path = configPath()) {
   return createConfig(path)
 }

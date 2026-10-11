@@ -1,5 +1,3 @@
-// SPDX-License-Identifier: MIT
-
 import { dlopen, toBuffer } from 'node:ffi'
 import { VideoError } from './errors.js'
 import { libraryPath } from './loader.js'
@@ -62,8 +60,11 @@ export class Video {
     if (typeof fixVideoIndex !== 'boolean' || typeof showStatus !== 'boolean') {
       throw new VideoError('fixVideoIndex and showStatus must be booleans')
     }
+
     this.#doom = doom
     this.#showStatus = showStatus
+
+    // Terminal callbacks cannot throw into the event emitter; surface failures on the next awaited/rendered frame.
     this.#onData = data => {
       try {
         this.#processResponses(data)
@@ -72,6 +73,7 @@ export class Video {
         this.#pendingResolution?.reject(error)
       }
     }
+
     this.#onResize = () => {
       try {
         this.#resize()
@@ -81,6 +83,7 @@ export class Video {
         this.#pendingResolution?.reject(error)
       }
     }
+
     try {
       // SAFETY: Load the pinned library once so the feed and renderer share all
       // native state, including when Node materializes it from the SEA VFS.
@@ -109,11 +112,13 @@ export class Video {
   #resize () {
     const columns = Math.max(1, process.stdout.columns ?? 80)
     const rows = Math.max(1, process.stdout.rows ?? 24)
+
     if (!this.#renderer) {
       this.#renderer = this.#call('createRenderer', columns, rows, 0, 0, this.#output.feed)
       if (!this.#renderer) {
         throw new VideoError('Cannot create OpenTUI renderer')
       }
+
       // Configure the renderer's native environment explicitly. Text measurement
       // probes draw before alternate-screen entry and are unnecessary for our
       // ASCII status bar. Graphics, keyboard and pixel-size queries stay enabled.
@@ -128,8 +133,10 @@ export class Video {
           throw new VideoError(`Cannot configure OpenTUI setting ${name}`)
         }
       }
+
       this.#call('setUseThread', this.#renderer, 0)
       this.#call('setClearOnShutdown', this.#renderer, 1)
+
       // Use the same flags as TerminalParser: OpenTUI may finish negotiation
       // later and push its own mode. Both owners pop one level during shutdown.
       this.#call('setKittyKeyboardFlags', this.#renderer, 11)
@@ -137,12 +144,14 @@ export class Video {
     } else if (columns !== this.#columns || rows !== this.#rows) {
       this.#call('resizeRenderer', this.#renderer, columns, rows)
     }
+
     this.#columns = columns
     this.#rows = rows
   }
 
   #processResponses (data) {
     this.#response = (this.#response + data.toString('ascii')).slice(-16384)
+
     // Forward complete CSI/APC replies, retaining fragmented terminal responses.
     // Keyboard sequences are ignored by OpenTUI's capability parser.
     // eslint-disable-next-line no-control-regex
@@ -150,11 +159,13 @@ export class Video {
     for (const reply of replies) {
       const bytes = Buffer.from(reply[0], 'ascii')
       this.#call('processCapabilityResponse', this.#renderer, bytes, bytes.length)
+
       // OpenTUI 0.5.11 uses image 31337 for its graphics capability query.
       // eslint-disable-next-line no-control-regex
       if (/^\x1b_G(?:[^;]*,)?i=31337(?:,[^;]*)?;OK\x1b\\$/.test(reply[0])) {
         this.#kittySupported = true
       }
+
       // eslint-disable-next-line no-control-regex
       const dimensions = /^\x1b\[4;(\d+);(\d+)t$/.exec(reply[0])
       if (dimensions) {
@@ -166,11 +177,15 @@ export class Video {
           this.#awaitingPixels = false
         }
       }
+
+      // Readiness requires both graphics support and fresh pixel dimensions.
       if (this.#kittySupported && this.#pixelWidth && this.#pixelHeight && !this.#awaitingPixels) {
         clearTimeout(this.#resolutionTimer)
         this.#pendingResolution?.resolve()
       }
     }
+
+    // Keep the trailing fragment for the next stdin chunk, not already processed replies.
     if (replies.length) {
       const last = replies.at(-1)
       this.#response = this.#response.slice(last.index + last[0].length)
@@ -184,11 +199,13 @@ export class Video {
       this.#failure = new VideoError('Terminal did not confirm Kitty Graphics and pixel resolution within 1500ms')
       this.#pendingResolution?.reject(this.#failure)
     }, 1500)
+
     this.#call('queryPixelResolution', this.#renderer)
   }
 
   async measureScreen () {
     this.#pendingResolution = Promise.withResolvers()
+
     try {
       this.#requestResolution()
       await this.#pendingResolution.promise
@@ -203,10 +220,12 @@ export class Video {
   setupFrameBuffer () {
     this.#frameWidth = this.#doom.getFrameWidth()
     this.#frameHeight = this.#doom.getFrameHeight()
+
     // SAFETY: Doom owns this allocation and outlives the renderer. Reads happen
     // on the same thread between engine ticks, before its library is unloaded.
     this.#frameBuffer = toBuffer(this.#doom.getFramebuffer(), this.#frameWidth * this.#frameHeight * 4, false)
     this.#rgbaFrame = Buffer.alloc(this.#frameBuffer.length)
+
     this.#resize()
     process.stdin.on('data', this.#onData)
     process.stdout.on('resize', this.#onResize)
@@ -218,16 +237,21 @@ export class Video {
     if (this.#failure) {
       throw this.#failure
     }
+
     if (this.#closed || !this.#pixelWidth || !this.#pixelHeight) {
       throw new VideoError('Renderer is closed or terminal pixel resolution is unavailable')
     }
+
     this.#resize()
     const buffer = this.#call('getNextBuffer', this.#renderer)
+
     // Rebuild the entire native frame, including black margins and the bar.
     // OpenTUI owns graphics transfer, placement, synchronization and presentation.
     this.#call('bufferClear', buffer, this.#black)
+
     const gameRows = this.#rows - Number(this.#showStatus)
     if (gameRows > 0) {
+      // Convert pixel aspect ratio into terminal-cell dimensions, leaving room for the status bar.
       const ratio = (this.#frameWidth / this.#frameHeight) *
         (this.#pixelHeight / this.#rows) / (this.#pixelWidth / this.#columns)
       let width = this.#columns
@@ -236,22 +260,29 @@ export class Video {
         height = gameRows
         width = Math.max(1, Math.floor(height * ratio))
       }
+
+      // Doom exposes BGRA; OpenTUI accepts RGBA with explicit opaque alpha.
       for (let i = 0; i < this.#frameBuffer.length; i += 4) {
         this.#rgbaFrame[i] = this.#frameBuffer[i + 2]
         this.#rgbaFrame[i + 1] = this.#frameBuffer[i + 1]
         this.#rgbaFrame[i + 2] = this.#frameBuffer[i]
         this.#rgbaFrame[i + 3] = 255
       }
+
       const handle = Buffer.alloc(4)
       const result = this.#call('imageCreateFromRgba', this.#rgbaFrame, BigInt(this.#rgbaFrame.length),
         this.#frameWidth, this.#frameHeight, this.#frameWidth * 4, handle)
       if (result !== 0 || handle.readUInt32LE(0) === 0) {
         throw new VideoError(`Cannot create OpenTUI image: status ${result}`)
       }
+
+      // Retain the previous image until presentation confirms that native buffers no longer need it.
       if (this.#image) {
         this.#retired.push(this.#image)
       }
       this.#image = handle.readUInt32LE(0)
+
+      // Placement options center the fitted image and describe the source crop in the pinned ABI.
       const options = Buffer.alloc(44)
       options.writeInt32LE(Math.floor((this.#columns - width) / 2), 0)
       options.writeInt32LE(Math.floor((gameRows - height) / 2), 4)
@@ -265,6 +296,8 @@ export class Video {
         throw new VideoError('Cannot draw OpenTUI image')
       }
     }
+
+    // Clip the ASCII bar to avoid wrapping and overlap in narrow terminals.
     if (this.#showStatus) {
       const info = Buffer.from(this.#info.replace(/[^\x20-\x7e]/g, '?').slice(0, this.#columns))
       const status = Buffer.from(this.#status.replace(/[^\x20-\x7e]/g, '?')
@@ -273,10 +306,12 @@ export class Video {
       this.#call('bufferDrawText', buffer, info, info.length, this.#columns - info.length,
         this.#rows - 1, this.#white, this.#black, 0)
     }
+
     const result = this.#call('render', this.#renderer, 1)
     if (result === 2) {
       throw new VideoError('OpenTUI presentation failed')
     }
+
     if (result === 0) {
       for (const image of this.#retired) {
         this.#call('imageDestroy', image)
@@ -289,17 +324,22 @@ export class Video {
     if (this.#closed) {
       return
     }
+
     this.#closed = true
     clearTimeout(this.#resolutionTimer)
     this.#pendingResolution?.reject(new VideoError('Screen resolution detection was interrupted'))
+
     process.stdin.off('data', this.#onData)
     process.stdout.off('resize', this.#onResize)
     process.off('SIGWINCH', this.#onResize)
+
+    // Destroy native handles before the output feed and library they borrow.
     try {
       if (this.#renderer) {
         this.#call('destroyRenderer', this.#renderer, 1)
         this.#renderer = 0
       }
+
       for (const image of [...this.#retired, this.#image]) {
         if (image) {
           this.#call('imageDestroy', image)

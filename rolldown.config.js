@@ -1,5 +1,3 @@
-// SPDX-License-Identifier: MIT
-
 import { defineConfig } from 'rolldown'
 
 export default defineConfig({

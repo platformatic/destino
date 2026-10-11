@@ -1,10 +1,9 @@
-// SPDX-License-Identifier: MIT
-
 import { suffix } from 'node:ffi'
 import { mkdirSync, readFileSync, writeSync } from 'node:fs'
 import { glob } from 'node:fs/promises'
 import { basename, resolve } from 'node:path'
 import { isSea } from 'node:sea'
+import { parseCommandLine } from './cli/args.js'
 import { LoaderError } from './errors.js'
 
 export const packaged = isSea()
@@ -13,6 +12,7 @@ export function startupProgress (message) {
   if (!packaged) {
     return
   }
+
   // Flush before synchronous FFI/file work so progress is visible immediately.
   // These messages are emitted only before OpenTUI takes over the terminal.
   const line = `--> ${message}\n`
@@ -28,16 +28,18 @@ function assetPath (bundled, development) {
 export function libraryPath (name) {
   const label = { engine: 'Doom engine', video: 'OpenTUI', audio: 'SDL3' }[name]
   startupProgress(`Loading ${label} native library...`)
+
   if (name === 'video') {
     return assetPath(`libopentui.${suffix}`, `video/libopentui.${suffix}`)
   }
+
   return name === 'engine'
     ? assetPath(`destino.${suffix}`, `engine/destino.${suffix}`)
     : assetPath(`libSDL3.${suffix}`, `audio/lib/libSDL3.${suffix}`)
 }
 
-export function configPath () {
-  return resolve(process.cwd(), process.argv[2] ?? 'destino.json')
+export function configPath (args = process.argv.slice(2)) {
+  return parseCommandLine(args).config
 }
 
 export function schemaPath () {
@@ -51,22 +53,28 @@ export async function findWadPath () {
 }
 
 export function loadGameAssets (config) {
+  // User paths are relative to the working directory; bundled defaults belong to the asset mount.
   const wadPath = config.wadPath
     ? resolve(process.cwd(), config.wadPath)
     : assetPath('wads/freedoom1.wad', 'freedoom/freedoom1.wad')
   const fontPath = config.sf2Path
     ? resolve(process.cwd(), config.sf2Path)
     : assetPath('midi/GeneralUser-GS.sf2', 'audio/font/GeneralUser-GS.sf2')
+
   try {
     startupProgress('Reading WAD data...')
     const wad = packaged ? readFileSync(wadPath) : null
+
     startupProgress('Reading SF2 soundfont...')
     const font = readFileSync(fontPath)
+
+    // Packaged engine files stay in memory except saves, scoped by the selected IWAD.
     const saveDirectory = packaged ? resolve(process.cwd(), 'saves', basename(wadPath)) : null
     if (saveDirectory) {
-      // Persistent saves are the only application-owned SEA filesystem writes.
+      // Persistent saves are the only application-owned filesystem writes during SEA gameplay.
       mkdirSync(saveDirectory, { recursive: true })
     }
+
     return {
       // Doom's IWAD identification uses the basename to distinguish game types.
       wadPath: packaged ? `/destino/${basename(wadPath)}` : wadPath,

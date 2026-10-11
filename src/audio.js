@@ -1,6 +1,4 @@
-// SPDX-License-Identifier: MIT
-
-import { dlopen, toString } from 'node:ffi'
+import { dlopen, toBuffer, toString } from 'node:ffi'
 import { AudioError } from './errors.js'
 import { libraryPath } from './loader.js'
 
@@ -9,6 +7,9 @@ const signatures = {
   SDL_InitSubSystem: { arguments: ['uint32'], return: 'bool' },
   SDL_QuitSubSystem: { arguments: ['uint32'], return: 'void' },
   SDL_GetError: { arguments: [], return: 'pointer' },
+  SDL_free: { arguments: ['pointer'], return: 'void' },
+  SDL_GetAudioPlaybackDevices: { arguments: ['pointer'], return: 'pointer' },
+  SDL_GetAudioDeviceName: { arguments: ['uint32'], return: 'pointer' },
   SDL_OpenAudioDeviceStream: { arguments: ['uint32', 'pointer', 'pointer', 'pointer'], return: 'pointer' },
   SDL_DestroyAudioStream: { arguments: ['pointer'], return: 'void' },
   SDL_PutAudioStreamData: { arguments: ['pointer', 'pointer', 'int32'], return: 'bool' },
@@ -23,27 +24,84 @@ export class Audio {
   #stream = 0n
   #initialized = false
 
-  constructor () {
+  devices = []
+  version
+  path
+
+  constructor (device = null, { listOnly = false } = {}) {
     const path = libraryPath('audio')
+    this.path = path
+
     try {
       // SAFETY: Signatures match SDL 3.2+; no callbacks run on SDL's audio thread.
       const { lib, functions } = dlopen(path, signatures)
       this.#lib = lib
       this.#functions = functions
+
+      // Reject incompatible SDL ABIs before creating subsystem resources.
       const version = this.#call('SDL_GetVersion')
+      this.version = version
       if (version < 3002000 || version >= 4000000) {
         throw new AudioError('SDL 3.2 or later in the 3.x series is required')
       }
+
       this.#check('SDL_InitSubSystem', 0x10)
       this.#initialized = true
+
+      // Device IDs are session-local; expose names for persistent configuration.
+      const count = Buffer.alloc(4)
+      const pointer = this.#call('SDL_GetAudioPlaybackDevices', count)
+      if (!pointer) {
+        throw this.#error('SDL_GetAudioPlaybackDevices')
+      }
+
+      try {
+        const length = count.readInt32LE()
+        if (length < 0 || length > 65536) {
+          throw new AudioError('Invalid playback device count')
+        }
+
+        if (length > 0) {
+          // SAFETY: SDL allocated length uint32 IDs; consume them before SDL_free below.
+          const ids = toBuffer(pointer, length * 4)
+          for (let index = 0; index < length; index++) {
+            const id = ids.readUInt32LE(index * 4)
+            const namePointer = this.#call('SDL_GetAudioDeviceName', id)
+            if (!namePointer) {
+              throw this.#error('SDL_GetAudioDeviceName')
+            }
+
+            // SAFETY: Copy SDL's NUL-terminated device name while the subsystem is live.
+            this.devices.push({ id, name: toString(namePointer) })
+          }
+        }
+      } finally {
+        this.#call('SDL_free', pointer)
+      }
+
+      // Listing devices must not open or resume a playback stream.
+      if (listOnly) {
+        return
+      }
+
+      const selected = device === null
+        ? 0xffffffff
+        : this.devices.find(candidate => candidate.name === device)?.id
+      if (selected === undefined) {
+        throw new AudioError(`Playback device not found: ${device}`)
+      }
+
+      // SDL converts the engine's fixed signed-16 stereo format for the chosen device.
       const spec = Buffer.alloc(12)
       spec.writeUInt32LE(0x8010, 0) // SDL_AUDIO_S16LE.
       spec.writeInt32LE(2, 4)
       spec.writeInt32LE(44100, 8)
-      this.#stream = this.#call('SDL_OpenAudioDeviceStream', 0xffffffff, spec, null, null)
+
+      this.#stream = this.#call('SDL_OpenAudioDeviceStream', selected, spec, null, null)
       if (!this.#stream) {
         throw this.#error('SDL_OpenAudioDeviceStream')
       }
+
       // Prime one tick of silence to absorb timer jitter without unbounded latency.
       this.#check('SDL_PutAudioStreamData', this.#stream, Buffer.alloc(1260 * 4), 1260 * 4)
       this.#check('SDL_ResumeAudioStreamDevice', this.#stream)
@@ -74,14 +132,17 @@ export class Audio {
     if (!this.#stream) {
       throw new AudioError('Audio stream is closed')
     }
+
     const queued = this.#call('SDL_GetAudioStreamQueued', this.#stream)
     if (queued < 0) {
       throw this.#error('SDL_GetAudioStreamQueued')
     }
+
     // Drop stale output after a stall instead of allowing latency to grow indefinitely.
     if (queued + samples.length > 44100 * 4 / 10) {
       this.#check('SDL_ClearAudioStream', this.#stream)
     }
+
     this.#check('SDL_PutAudioStreamData', this.#stream, samples, samples.length)
   }
 
@@ -90,10 +151,12 @@ export class Audio {
       this.#call('SDL_DestroyAudioStream', this.#stream)
       this.#stream = 0n
     }
+
     if (this.#initialized) {
       this.#call('SDL_QuitSubSystem', 0x10)
       this.#initialized = false
     }
+
     this.#lib?.close()
     this.#lib = null
   }

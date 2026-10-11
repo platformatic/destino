@@ -1,5 +1,3 @@
-// SPDX-License-Identifier: GPL-3.0-or-later
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -78,6 +76,7 @@ void init(int32_t argn, char** args, SetTitleWindowFn set_window_title) {
   runtime->argn = argn;
   runtime->args = malloc(sizeof(char*) * argn);
   runtime->set_window_title = set_window_title;
+
   // ENDOOM is a native exit screen. The JavaScript terminal renderer handles
   // terminal restoration, so displaying that screen would interfere with it.
   show_endoom = 0;
@@ -108,6 +107,7 @@ void cleanup() {
   for (int i = 0; i < runtime->argn; i++) {
     free(runtime->args[i]);
   }
+
   free(runtime->args);
   free(runtime);
 

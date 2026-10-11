@@ -1,193 +1,112 @@
-<!-- SPDX-License-Identifier: MIT -->
-
 # Destino
 
 Destino runs Doom in a terminal using Node.js, [`node:ffi`](https://nodejs.org/api/ffi.html), and [OpenTUI](https://github.com/sst/opentui)'s [Kitty Graphics](https://sw.kovidgoyal.net/kitty/graphics-protocol/) renderer.
 
-The Doom engine is built from [doomgeneric](https://github.com/ozkl/doomgeneric) as a native shared library. Node.js owns the application loop, forwards terminal input to Doom, reads Doom's framebuffer through FFI, and renders it with Kitty Graphics.
+Music and sound effects use SDL3 and the GeneralUser GS soundfont.
 
-Sound effects are mixed into 44.1 kHz signed-16 stereo PCM by `src/native/audio.c`.
-JavaScript reads that PCM through FFI and queues it to SDL3 using `src/audio.js`.
-MUS scores are converted using DoomGeneric's converter; TinyMidiLoader schedules
-MIDI events and TinySoundFont synthesizes music with the GeneralUser GS soundfont.
-Music and effects are mixed together before being sent to SDL3, with support for
-music volume, pause/resume, and looping.
+You need a terminal supporting both [Kitty Graphics](https://sw.kovidgoyal.net/kitty/graphics-protocol/)
+and the [Kitty keyboard protocol](https://sw.kovidgoyal.net/kitty/keyboard-protocol/).
+Freedoom is included; you can also use your own Doom-compatible WAD.
 
-## Architecture
+Internal architecture, dependency preparation, build and packaging details are in
+[AGENTS.md](AGENTS.md).
 
-The project is split into a small native platform layer and a JavaScript runtime:
+## Getting Started
 
-1. `src/native/main.c` implements the platform callbacks required by `doomgeneric`, including input, timing, frame readiness, and framebuffer access.
-2. `src/engine.js` loads the Doom shared library through `node:ffi` and exposes a small JavaScript wrapper around the native functions.
-3. `src/input.js` parses terminal keyboard input, including Kitty keyboard protocol events, and maps configured keys to Doom key codes.
-4. `src/video.js` converts Doom's framebuffer to RGBA and presents it through OpenTUI's native Kitty Graphics renderer. `src/video-output.js` drains native output and applies the CMUX placement fix.
-5. `src/index.js` wires everything together and runs Doom at 35 Hz.
+Open a terminal supporting Kitty graphics and keyboard input. Run these commands
+from the directory where you want to keep your configuration and saves.
 
-JavaScript pulls the native framebuffer on every tick. OpenTUI owns Kitty Graphics transmission, placement, synchronization, text rendering and image cleanup. Kitty Graphics is the only video backend; no character-cell fallback is used.
-
-## Requirements
-
-You need:
-
-1. Node.js **26.10.0 or newer**, with `node:ffi` support.
-2. `pkg-config`, `tar` and `unzip` for dependency provisioning.
-3. SDL3 3.2+ and its `pkg-config` metadata; a C compiler (`clang` by default) for the native build.
-4. `doomgeneric` sources under `deps/engine`.
-5. A Doom-compatible WAD, such as `freedoom1.wad` from [Freedoom](https://freedoom.github.io/download.html).
-6. A terminal with both [Kitty Graphics](https://sw.kovidgoyal.net/kitty/graphics-protocol/) and [Kitty keyboard protocol](https://sw.kovidgoyal.net/kitty/keyboard-protocol/) support.
-
-## Installation
-
-### Install local prerequisites
-
-SDL3 must already be installed with its `sdl3.pc` metadata.
-The installer imports only the shared library;
-it never installs system packages. It checks prerequisites before
-downloading or replacing any dependency.
-
-On macOS, use Homebrew:
+### 1. Create your configuration
 
 ```sh
-brew install pkg-config sdl3 unzip
+destino --bootstrap
 ```
 
-Install Apple's Command Line Tools manually with `xcode-select --install` if
-`clang` is unavailable. The build does not use SDL headers or link against SDL.
+Bootstrap creates `destino.json` in the current directory, then walks you through
+keyboard setup. Press a key or shortcut for each action, or wait five seconds to
+keep its default bindings. Bootstrap does not start the game. **It completely
+overwrites any existing config with defaults before keyboard setup.** If you cancel
+setup with `Ctrl+C` or `Ctrl+D`, the reset config stays in place with default bindings;
+the previous configuration is not restored.
 
-On Debian or Ubuntu:
+### 2. Start the game
 
 ```sh
-sudo apt install clang pkg-config libsdl3-dev tar unzip
+destino
 ```
 
-On Fedora:
+Destino reads `destino.json` and uses the bundled Freedoom WAD by default. To play a
+different WAD, set `wadPath` in the config. Press `Ctrl+C` to exit the game.
+
+If the config is missing, Destino shows usage and exits with status 1. It never
+creates configuration automatically during normal startup.
+
+### Use a custom configuration
+
+For a custom config, pass the same path to bootstrap and to the game:
 
 ```sh
-sudo dnf install clang pkgconf-pkg-config SDL3-devel tar unzip
+destino --bootstrap ./custom.json
+destino ./custom.json
 ```
 
-On Arch Linux:
+## CLI Reference
+
+The config path is optional and **positional**, defaulting to `destino.json` in the
+current directory. There is no `-c` / `--config` option.
+
+| Switch | Purpose |
+| --- | --- |
+| `--bootstrap`, `--b`, `-b` | Create or completely reset config, then run guided keyboard setup. |
+| `-i`, `--input` | Reconfigure keyboard bindings in an existing config. |
+| `--probe` | With `-i` / `--input`, display recognized chords and assigned actions without saving. |
+| `-a`, `--audio` | List SDL playback device names without loading config or starting the game. |
+| `-h`, `--help` | Show usage. |
+
+Bootstrap, input and audio modes cannot be combined. Use `destino --help` to show usage.
+
+### Input setup and probe
 
 ```sh
-sudo pacman -S clang pkgconf sdl3 tar unzip
+destino -i                     # Guided setup using destino.json
+destino --input ./custom.json  # Guided setup using an existing custom config
+destino -i --probe             # Display recognized keys, chords and actions
 ```
 
-Older distributions may not provide SDL3 yet; install it from the official
-[SDL releases](https://github.com/libsdl-org/SDL/releases) or your distribution's
-supported package source. For custom installations, set `PKG_CONFIG_PATH` to
-the directory containing `sdl3.pc`, optionally in the repository's `.env` file.
+Both modes require an interactive terminal supporting Kitty keyboard, but do not
+initialize the game, renderer or audio. Setup groups Doom movement, game and menu
+actions. Press a key or shortcut to replace an action's bindings, or wait five seconds
+to retain them. New conflicts with another action are rejected; existing shared
+bindings are preserved. Standalone modifiers are ignored during capture.
 
-### Prepare dependencies
+`Ctrl+C` or `Ctrl+D` cancels without saving, as do SIGINT and SIGTERM. Successful setup
+updates only keybindings and preserves other configuration. If the config changes
+while setup is running, Destino refuses to overwrite it.
+
+Probe never writes configuration. It uses defaults when the implicit `destino.json`
+is absent; an explicit missing path or malformed config is an error. `--probe` requires
+`-i` / `--input`.
+
+### Audio output
 
 ```sh
-pnpm install
-pnpm run prepare
+destino -a
 ```
 
-The single JavaScript installer reports progress in English with ANSI colors
-and creates the following layout:
+This lists SDL playback device names without reading configuration, opening a playback
+stream or starting the game. Set `audio` to the exact device name, not SDL's temporary ID:
 
-```text
-deps/
-├── engine/
-│   └── src/      # Only .c and .h files from the latest default-branch commit
-├── freedoom/     # Only .wad files from the latest stable release
-├── audio/
-│   ├── lib/      # Only libSDL3.dylib or libSDL3.so
-│   ├── src/      # Unmodified TinySoundFont and TinyMidiLoader headers
-│   └── font/GeneralUser-GS.sf2
-└── video/        # OpenTUI 0.5.11: libopentui.dylib or libopentui.so
+```json
+{
+  "audio": "External Speakers"
+}
 ```
 
-Imported SDL libraries always match the current host
-(`darwin-arm64`, `darwin-x64`, `linux-arm64`, or `linux-x64`).
-SDL copies use stable filenames (`libSDL3.dylib` or
-`libSDL3.so`), retaining their original loader
-metadata and external runtime dependencies. This step prepares dependencies;
-it does not produce a standalone binary.
-
-OpenTUI is downloaded from npm and verified against its SHA-512 integrity value.
-By default it matches the host. `pnpm run prepare linux-arm64` selects another
-supported target for OpenTUI only; SDL still comes from the current host.
-
-Rerunning refreshes each managed component after it has been prepared
-successfully. Local changes inside those component directories are replaced;
-unrelated files in `deps/` are preserved.
-
-## Building
-
-Build the native Doom library:
-
-```sh
-pnpm run build
-```
-
-`src/scripts/build.js` invokes `clang` directly (override with `CC`), producing
-`deps/engine/destino.dylib` on macOS or `deps/engine/destino.so` on Linux.
-Intermediate objects are stored in `tmp/doomgeneric/`. The upstream sources are
-unchanged; our PCM backend replaces the original sound and music implementations.
-
-## Building a SEA executable
-
-Destino can be packaged as a Node.js Single Executable Application (SEA) on macOS.
-
-First install dependencies and build the native library:
-
-```sh
-pnpm install
-pnpm run prepare
-pnpm run build
-```
-
-Then build the executable:
-
-```sh
-pnpm run sea
-```
-
-This bundles the JavaScript entry point, native libraries, WAD files, and SF2 soundfont into `dist/destino`.
-SEA assets are mounted by Node's read-only VFS (`useVfs: true`, code cache disabled).
-`src/loader.js` resolves packaged and development paths; Destino does not extract
-assets or create temporary directories. Node may internally materialize native
-libraries while loading them, including temporary files on macOS.
-
-In SEA mode, the WAD and SF2 are passed to native code as memory buffers. Saves
-persist in `saves/<WAD filename>/` under the current working directory (for example,
-`saves/freedoom1.wad/doomsav0.dsg`). Save slots, temporary save files and recovery
-saves are the only application-owned disk writes, along with their directory.
-Doom's configuration, demos and screenshots stay in process memory and disappear
-on exit. Source-mode engine files retain their normal filesystem behavior.
-The executable can be run directly:
-
-```sh
-./dist/destino
-```
+Omit `audio` or set it to `null` for the system default. An unavailable device
+raises `DESTINO_AUDIO`; invalid audio configuration raises `DESTINO_CONFIG`.
+Bootstrap omits unset optional settings rather than writing `null` values.
 
 ## Running the game
-
-Destino reads configuration from `destino.json` in the current directory by default.
-From source, a missing file is created and the program exits. In SEA mode,
-missing configuration uses in-memory defaults without creating any files.
-
-Run once to generate the config:
-
-```sh
-/path/to/node src/index.js
-```
-
-Update `wadPath` if it was not detected automatically, then run again:
-
-```sh
-/path/to/node src/index.js
-```
-
-You can also pass a custom config path as the first argument:
-
-```sh
-/path/to/node src/index.js ./foo.json
-```
-
-Controls are configured in `destino.json`. Press `Ctrl+C` to exit.
 
 The bottom information bar shows the WAD name and exit shortcut on the left,
 and the framebuffer resolution and audio format on the right. Set `showStatus`
@@ -195,15 +114,9 @@ to `false` at the root of `destino.json` to hide it (default: `true`). The game
 uses the remaining rows, and its centered layout updates when the terminal is
 resized. Text is truncated to fit narrow terminals without wrapping.
 
-Like Principe, video sizing uses the terminal's reported pixel dimensions to
-measure cell geometry. The game starts at full available width and is reduced
-only when its proportional height exceeds the available rows. The framebuffer's
-aspect ratio is preserved to terminal-cell rounding, with centered black margins.
-OpenTUI negotiates Kitty Graphics support; an unsupported terminal fails rather
-than falling back to sixel or character cells. Pixel geometry is queried again
-on resize and font/DPI changes; missing graphics or geometry confirmation
-within 1.5 seconds raises `DESTINO_VIDEO`. Every tick repaints the whole surface,
-including margins and the information bar, even if Doom's frame is unchanged.
+The game fits the available terminal area while preserving its aspect ratio and
+adjusts when the terminal is resized. A terminal without the required graphics or
+keyboard support reports an error; there is no fallback renderer.
 
 The CMUX workaround `fixVideoIndex` is enabled by default at the root of `destino.json`:
 
@@ -213,19 +126,17 @@ The CMUX workaround `fixVideoIndex` is enabled by default at the root of `destin
 }
 ```
 
-Set it to `false` to disable it. When enabled, Kitty images use a z-index of `-1`,
-above cell backgrounds and below text, matching Principe's CMUX workaround.
-
-Keyboard input requires a terminal supporting the Kitty keyboard protocol,
-including press/repeat/release events and reporting all keys as escape sequences.
-Destino queries the active protocol flags at startup and fails with
-`DESTINO_INPUT` if the required flags are unavailable or the terminal does not
-respond within 1.5 seconds. Legacy ASCII and xterm input are not supported.
+Set it to `false` to disable the workaround.
 
 Set `sf2Path` to use a custom SF2 soundfont (relative to the current working
 directory or absolute). An empty value selects the bundled
 [GeneralUser GS](https://schristiancollins.com/generaluser.php) soundfont.
-The synthesizer libraries come from [TinySoundFont](https://github.com/schellingb/TinySoundFont).
+
+### Saves
+
+Saves are stored in `saves/<WAD filename>/` under the directory where you run Destino,
+for example `saves/freedoom1.wad/doomsav0.dsg`. Doom's configuration, demos and
+screenshots are not persisted between runs.
 
 Default keybindings:
 
@@ -250,6 +161,6 @@ Default keybindings:
 
 Destino is distributed as GPL-3.0-or-later because the Doom binding links with the GPL-licensed Doom engine sources. See [LICENSE](LICENSE).
 
-Files that do not directly bind to, build, or embed the Doom engine are licensed under the MIT License and carry an `SPDX-License-Identifier: MIT` header. See [LICENSE-MIT](LICENSE-MIT).
+Files that do not directly bind to, build, or embed the Doom engine are licensed under the MIT License, also included in [LICENSE](LICENSE).
 
-The files that directly bind to or build the Doom engine carry an `SPDX-License-Identifier: GPL-3.0-or-later` header.
+Third-party license texts and attributions are collected in [THIRD_PARTY_NOTICES](THIRD_PARTY_NOTICES). Release archives include both files alongside the executable.
