@@ -3,7 +3,7 @@ import { parseArgs } from 'node:util'
 import { ConfigError } from '../errors.js'
 
 export const usage = `Usage: destino [CONFIG]
-       destino --bootstrap | --b | -b [CONFIG]
+       destino -b | --bootstrap [CONFIG]
        destino -i | --input [--probe] [CONFIG]
        destino -a | --audio
        destino -h | --help`
@@ -15,7 +15,6 @@ export function parseCommandLine (args = process.argv.slice(2)) {
       allowPositionals: true,
       options: {
         bootstrap: { type: 'boolean', short: 'b' },
-        b: { type: 'boolean' },
         input: { type: 'boolean', short: 'i' },
         probe: { type: 'boolean' },
         audio: { type: 'boolean', short: 'a' },
@@ -24,7 +23,7 @@ export function parseCommandLine (args = process.argv.slice(2)) {
     })
 
     // Validate modes before dispatch so argument order cannot change their meaning.
-    const bootstrap = Boolean(values.bootstrap || values.b)
+    const bootstrap = values.bootstrap ?? false
     if ([bootstrap, values.input, values.audio].filter(Boolean).length > 1) {
       throw new ConfigError('--bootstrap, --input and --audio cannot be combined')
     }

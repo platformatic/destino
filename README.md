@@ -57,7 +57,7 @@ current directory. There is no `-c` / `--config` option.
 
 | Switch | Purpose |
 | --- | --- |
-| `--bootstrap`, `--b`, `-b` | Create or completely reset config, then run guided keyboard setup. |
+| `-b`, `--bootstrap` | Create or completely reset config, then run guided keyboard setup. |
 | `-i`, `--input` | Reconfigure keyboard bindings in an existing config. |
 | `--probe` | With `-i` / `--input`, display recognized chords and assigned actions without saving. |
 | `-a`, `--audio` | List SDL playback device names without loading config or starting the game. |
