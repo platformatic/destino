@@ -10,6 +10,25 @@ const groups = [
   { title: 'Menu controls', actions: ['confirm', 'abort', 'yes', 'no'] }
 ]
 
+const keyLabels = {
+  pageup: 'Page Up',
+  pagedown: 'Page Down',
+  capslock: 'Caps Lock',
+  scrolllock: 'Scroll Lock',
+  numlock: 'Num Lock',
+  printscreen: 'Print Screen',
+  isolevel3shift: 'ISO Level 3 Shift',
+  isolevel5shift: 'ISO Level 5 Shift'
+}
+
+// Format display labels without changing canonical chords used for matching and persistence.
+function formatChord (chord) {
+  return chord.split('+').map(key => {
+    const label = keyLabels[key] ?? key.replace(/^(left|right)(shift|alt|ctrl|super|hyper|meta)$/, '$1 $2')
+    return label.replace(/(^|\s)\S/gu, character => character.toUpperCase())
+  }).join('+')
+}
+
 export function inputBindings (parsed) {
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
     throw new ConfigError('Configuration must be a JSON object')
@@ -108,7 +127,7 @@ export async function configureInput ({ config, explicitConfig = true, probe = f
 
     if (probe) {
       const actions = Object.entries(keybindings).filter(([, keys]) => keys.includes(chord)).map(([action]) => action)
-      process.stdout.write(`  ${chord.padEnd(24)} ${actions.join(' / ') || 'Not assigned'}\r\n`)
+      process.stdout.write(`  ${formatChord(chord).padEnd(24)} ${actions.join(' / ') || 'Not assigned'}\r\n`)
     } else if (!/^(?:(?:left|right)(?:shift|alt|ctrl|super|hyper|meta)|isolevel[35]shift)$/.test(key)) {
       capture?.resolve(chord)
     }
@@ -154,7 +173,7 @@ export async function configureInput ({ config, explicitConfig = true, probe = f
             capture = Promise.withResolvers()
             let seconds = 5
             const prompt = () => {
-              process.stdout.write(`\r\x1b[2K${action} — Current: ${keybindings[action].join(' / ')} — Keep in ${seconds}s: `)
+              process.stdout.write(`\r\x1b[2K${action} — Current: ${keybindings[action].map(formatChord).join(' / ')} — Keep in ${seconds}s: `)
             }
             prompt()
             const timer = setInterval(() => {
@@ -183,7 +202,7 @@ export async function configureInput ({ config, explicitConfig = true, probe = f
             const conflict = chord && !keybindings[action].includes(chord) && Object.entries(keybindings)
               .find(([other, keys]) => other !== action && keys.includes(chord))
             if (conflict) {
-              process.stdout.write(`  ${chord} is already used for ${conflict[0]}. Please choose another key.\r\n`)
+              process.stdout.write(`  ${formatChord(chord)} is already used for ${conflict[0]}. Please choose another key.\r\n`)
               continue
             }
 
@@ -191,7 +210,7 @@ export async function configureInput ({ config, explicitConfig = true, probe = f
               keybindings[action] = [chord]
             }
 
-            process.stdout.write(`  ${chord ? `Assigned: ${chord}` : `Kept: ${keybindings[action].join(' / ')}`}\r\n`)
+            process.stdout.write(`  ${chord ? `Assigned: ${formatChord(chord)}` : `Kept: ${keybindings[action].map(formatChord).join(' / ')}`}\r\n`)
             accepted = true
           }
 
